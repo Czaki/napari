@@ -1,11 +1,23 @@
-"""Octree utility classes.
+"""OctreeDisplayOptions, NormalNoise and OctreeMetadata classes.
 """
 from dataclasses import dataclass
-from typing import NamedTuple, Tuple
+from typing import NamedTuple
 
 import numpy as np
 
-from ....components.experimental.chunk import async_config
+from ....components.experimental.chunk import LayerRef
+from ....utils.config import octree_config
+
+
+def _get_tile_size() -> int:
+    """Return the default tile size.
+
+    Return
+    ------
+    int
+        The default tile size.
+    """
+    return octree_config['octree']['tile_size'] if octree_config else 256
 
 
 @dataclass
@@ -54,16 +66,9 @@ class OctreeDisplayOptions:
             self._show_grid = show
             self.loaded_event()  # redraw
 
-    tile_size: int = async_config.octree.tile_size
+    tile_size: int = _get_tile_size()
     freeze_level: bool = False
     track_view: bool = True
-
-
-class TestImageSettings(NamedTuple):
-    """Settings for a test image we are creating."""
-
-    base_shape: Tuple[int, int]
-    tile_size: int
 
 
 class NormalNoise(NamedTuple):
@@ -95,8 +100,8 @@ class NormalNoise(NamedTuple):
         return np.random.normal(self.mean, self.std_dev)
 
 
-class SliceConfig(NamedTuple):
-    """Configuration for a tiled image.
+class OctreeMetadata(NamedTuple):
+    """Metadata for an Octree.
 
     Attributes
     ----------
@@ -110,7 +115,7 @@ class SliceConfig(NamedTuple):
 
     Notes
     -----
-    This SliceConfig.tile_size will be used by the OctreeLevels in the tree
+    This OctreeMetadata.tile_size will be used by the OctreeLevels in the tree
     in general. But the highest level OctreeLevel might use a larger size
     so that it can consist of a single chunk.
 
@@ -128,6 +133,7 @@ class SliceConfig(NamedTuple):
     own tile size.
     """
 
+    layer_ref: LayerRef
     base_shape: np.ndarray
     num_levels: int
     tile_size: int
@@ -136,6 +142,6 @@ class SliceConfig(NamedTuple):
     def aspect_ratio(self):
         """Return the width:height aspect ratio of the base image.
 
-        For example HDTV resolution is 16:9 which is 1.77.
+        For example HDTV resolution is 16:9 which has aspect ration 1.77.
         """
         return self.base_shape[1] / self.base_shape[0]

@@ -379,6 +379,7 @@ class Points(Layer):
         self._drag_box_stored = None
         self._is_selecting = False
         self._clipboard = {}
+        self._round_index = False
 
         with self.block_update_properties():
             self._edge_color_property = ''
@@ -529,7 +530,7 @@ class Points(Layer):
                 self.text.add(self.current_properties, adding)
 
         self._update_dims()
-        self.events.data()
+        self.events.data(value=self.data)
         self._set_editable()
 
     @property
@@ -823,7 +824,7 @@ class Points(Layer):
 
     @property
     def edge_contrast_limits(self) -> Tuple[float, float]:
-        """ None, (float, float): contrast limits for mapping
+        """None, (float, float): contrast limits for mapping
         the edge_color colormap property to 0 and 1
         """
         return self._edge_contrast_limits
@@ -958,7 +959,7 @@ class Points(Layer):
     def _set_color_mode(
         self, color_mode: Union[ColorMode, str], attribute: str
     ):
-        """ Set the face_color_mode or edge_color_mode property
+        """Set the face_color_mode or edge_color_mode property
 
         Parameters
         ----------
@@ -1005,7 +1006,7 @@ class Points(Layer):
             self.refresh_colors()
 
     def _set_color(self, color: ColorType, attribute: str):
-        """ Set the face_color or edge_color property
+        """Set the face_color or edge_color property
 
         Parameters
         ----------
@@ -1042,7 +1043,7 @@ class Points(Layer):
             color_event()
 
     def _set_color_cycle(self, color_cycle: np.ndarray, attribute: str):
-        """ Set the face_color_cycle or edge_color_cycle property
+        """Set the face_color_cycle or edge_color_cycle property
 
         Parameters
         ----------
@@ -1282,9 +1283,7 @@ class Points(Layer):
             with self.block_update_properties():
                 self.current_face_color = face_color
 
-        size = list(
-            set([self.size[i, self._dims_displayed].mean() for i in index])
-        )
+        size = list({self.size[i, self._dims_displayed].mean() for i in index})
         if len(size) == 1:
             size = size[0]
             with self.block_update_properties():
@@ -1520,7 +1519,7 @@ class Points(Layer):
                 slice_indices = np.where(matches)[0].astype(int)
                 return slice_indices, scale
             else:
-                data = self.data[:, not_disp].astype('int')
+                data = self.data[:, not_disp]
                 matches = np.all(data == indices[not_disp], axis=1)
                 slice_indices = np.where(matches)[0].astype(int)
                 return slice_indices, 1
