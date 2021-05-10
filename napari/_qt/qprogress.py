@@ -130,7 +130,9 @@ class progress(tqdm):
         if self.disable:
             return
         if self.has_viewer:
+            self._pbar.hide()
             self._pbar.close()
+            self._pbar.deleteLater()
         super().close()
 
 
