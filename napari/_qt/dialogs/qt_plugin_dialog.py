@@ -145,7 +145,7 @@ class Installer(QObject):
                 system_pins = ""
             env.insert(
                 "CONDA_PINNED_PACKAGES",
-                f"napari={napari_version}{system_pins}",
+                f"napari={napari_version}&pydantic<2.0a0{system_pins}",
             )
             if os.name == "nt":
                 # workaround https://github.com/napari/napari/issues/4247, 4484
