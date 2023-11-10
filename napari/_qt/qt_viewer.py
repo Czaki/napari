@@ -157,10 +157,10 @@ class QtViewer(QSplitter):
         have a custom canvas here.
     dims : napari.qt_dims.QtDims
         Dimension sliders; Qt View for Dims model.
-    show_welcome_screen : bool
-        Boolean indicating whether to show the welcome screen.
     viewer : napari.components.ViewerModel
         Napari viewer containing the rendered scene, layers, and controls.
+    _show_welcome_screen : bool
+        Boolean indicating whether to show the welcome screen.
     _key_map_handler : napari.utils.key_bindings.KeymapHandler
         KeymapHandler handling the calling functionality when keys are pressed that have a callback function mapped
     _qt_poll : Optional[napari._qt.experimental.qt_poll.QtPoll]
@@ -186,7 +186,8 @@ class QtViewer(QSplitter):
         self._show_welcome_screen = show_welcome_screen
 
         QCoreApplication.setAttribute(
-            Qt.AA_UseStyleSheetPropagationInWidgetStyles, True
+            Qt.ApplicationAttribute.AA_UseStyleSheetPropagationInWidgetStyles,
+            True,
         )
 
         self.viewer = viewer
@@ -269,12 +270,13 @@ class QtViewer(QSplitter):
     @property
     def view(self):
         """
-        Rectangular  vispy viewbox widget in which a subscene is rendered. Access directly within the QtViewer will
-        become deprecated.
+        Rectangular  vispy viewbox widget in which a subscene is rendered.
+        Access directly within the QtViewer will become deprecated.
         """
         warnings.warn(
             trans._(
-                "Access to QtViewer.view is deprecated since 0.5.0 and will be removed in the napari 0.6.0. Change to QtViewer.canvas.view instead."
+                "Access to QtViewer.view is deprecated since 0.5.0 and will "
+                "be removed in the napari 0.6.0. Change to QtViewer.canvas.view instead."
             ),
             FutureWarning,
             stacklevel=2,
@@ -289,7 +291,8 @@ class QtViewer(QSplitter):
         """
         warnings.warn(
             trans._(
-                "Access to QtViewer.camera will become deprecated in the 0.6.0. Change to QtViewer.canvas.camera instead."
+                "Access to QtViewer.camera will become deprecated in the 0.6.0."
+                " Change to QtViewer.canvas.camera instead."
             ),
             FutureWarning,
             stacklevel=2,
@@ -300,12 +303,16 @@ class QtViewer(QSplitter):
     def chunk_receiver(self) -> None:
         warnings.warn(
             trans._(
-                'QtViewer.chunk_receiver is deprecated in version 0.5 and will be removed in a later version. '
-                'More generally the old approach to async loading was removed in version 0.5 so this value is always None. '
-                'If you need to specifically use the old approach, continue to use the latest 0.4 release.'
+                'QtViewer.chunk_receiver is deprecated in version 0.5 and will'
+                ' be removed in a later version. '
+                'More generally the old approach to async loading was removed'
+                ' in version 0.5 so this value is always None. '
+                'If you need to specifically use the old approach,'
+                ' continue to use the latest 0.4 release.'
             ),
             DeprecationWarning,
         )
+        return
 
     @staticmethod
     def _update_dask_cache_settings(
@@ -450,7 +457,8 @@ class QtViewer(QSplitter):
             )
         return None
 
-    def _weakref_if_possible(self, obj):
+    @staticmethod
+    def _weakref_if_possible(obj):
         """Create a weakref to obj.
 
         Parameters
@@ -518,11 +526,12 @@ class QtViewer(QSplitter):
             for name in vlist:
                 try:
                     vdict[name] = eval(name, cf.f_globals, cf.f_locals)
-                except:  # noqa: E722
-                    print(
-                        f'Could not get variable {name} from '
-                        f'{cf.f_code.co_name}'
+                except Exception:
+                    logging.exception(
+                        'Could not get variable {v_name} from {co_name}',
+                        extra={"v_name": name, "co_name": cf.f_code.co_name},
                     )
+
         elif isinstance(variables, dict):
             vdict = variables
         else:
@@ -679,7 +688,7 @@ class QtViewer(QSplitter):
         if msg:
             raise OSError(trans._("Nothing to save"))
 
-        # prepare list of extensions for drop down menu.
+        # prepare a list of extensions for drop down menu.
         ext_str, writers = _extension_string_for_layers(
             list(self.viewer.layers.selection)
             if selected
@@ -1103,7 +1112,7 @@ def _create_qt_poll(parent: QObject, camera: Camera) -> Optional[QtPoll]:
 def _create_remote_manager(
     layers: LayerList, qt_poll
 ) -> Optional[RemoteManager]:
-    """Create and return a RemoteManager instance, if we need one.
+    """Create and return a RemoteManager instance if we need one.
 
     Parameters
     ----------
@@ -1148,7 +1157,7 @@ def _in_napari(n: int, frame: FrameType):
     if n < 2:
         return True
     # in-n-out is used in napari for dependency injection.
-    for pref in {"napari.", "in_n_out."}:
+    for pref in ("napari.", "in_n_out."):
         if frame.f_globals.get("__name__", "").startswith(pref):
             return True
     return False
