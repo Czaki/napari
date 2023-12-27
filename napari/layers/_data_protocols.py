@@ -64,6 +64,10 @@ class LayerDataProtocol(Protocol):
     Python array API standard:
     https://data-apis.org/array-api/latest/API_specification/array_object.html
 
+    Note:
+    -----
+    The tensorstore does not have __len__ or __iter__ method.
+
 
     WIP: Shapes.data may be an execption.
     """
@@ -75,6 +79,14 @@ class LayerDataProtocol(Protocol):
     @property
     def shape(self) -> Tuple[int, ...]:
         """Array dimensions."""
+
+    @property
+    def ndim(self) -> int:
+        """Number of array dimensions."""
+
+    @property
+    def size(self) -> int:
+        """Number of elements in the array."""
 
     def __getitem__(
         self, key: Union[Index, Tuple[Index, ...], LayerDataProtocol]

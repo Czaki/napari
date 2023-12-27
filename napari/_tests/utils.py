@@ -145,6 +145,10 @@ class LockableData:
         # LayerDataProtocol does not have ndim, but this should be equivalent.
         return len(self.data.shape)
 
+    @property
+    def size(self):
+        return self.data.size
+
     def __getitem__(
         self, key: Union[Index, Tuple[Index, ...], LayerDataProtocol]
     ) -> LayerDataProtocol:

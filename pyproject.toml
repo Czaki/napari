@@ -210,6 +210,7 @@ disable_error_code = [
 # to properly infer with PyQt6 installed
 always_false=['PYSIDE6', 'PYSIDE2', 'PYQT5']
 always_true=['PYQT6']
+enable_error_code = ["truthy-bool",  "redundant-expr"]
 
 
 # gloabl ignore error

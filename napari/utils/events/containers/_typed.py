@@ -226,7 +226,7 @@ class TypedMutableSequence(MutableSequence[_T]):
         ValueError
             If the value is not present
         """
-        if start is not None and start < 0:
+        if start < 0:
             start = max(len(self) + start, 0)
         if stop is not None and stop < 0:
             stop += len(self)

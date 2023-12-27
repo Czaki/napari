@@ -1192,19 +1192,9 @@ class Layer(KeymapProvider, MousemapProvider, ABC):
         self,
         dims: Dims,
     ) -> _SliceInput:
-        world_ndim: int = self.ndim if dims is None else dims.ndim
-        if dims is None:
-            # if no dims is given, "world" has same dimensionality of self
-            # this happens for example if a layer is not in a viewer
-            # in this case, we assume all dims are displayed dimensions
-            world_slice = _ThickNDSlice.make_full((np.nan,) * self.ndim)
-        else:
-            world_slice = _ThickNDSlice.from_dims(dims)
-        order_array = (
-            np.arange(world_ndim)
-            if dims.order is None
-            else np.asarray(dims.order)
-        )
+        world_ndim: int = dims.ndim
+        world_slice = _ThickNDSlice.from_dims(dims)
+        order_array = np.asarray(dims.order)
         order = tuple(
             self._world_to_layer_dims(
                 world_dims=order_array,
@@ -2152,7 +2142,7 @@ class Layer(KeymapProvider, MousemapProvider, ABC):
         if not layer_type:
             layer_type = guess_labels(data)
 
-        if layer_type is None or layer_type not in layers.NAMES:
+        if layer_type not in layers.NAMES:
             raise ValueError(
                 trans._(
                     "Unrecognized layer_type: '{layer_type}'. Must be one of: {layer_names}.",

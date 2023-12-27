@@ -33,7 +33,9 @@ def guess_rgb(shape: Tuple[int, ...]) -> bool:
 
 
 def guess_multiscale(
-    data: Union[MultiScaleData, list, tuple],
+    data: Union[
+        MultiScaleData, LayerDataProtocol, Sequence[LayerDataProtocol]
+    ],
 ) -> Tuple[bool, Union[LayerDataProtocol, Sequence[LayerDataProtocol]]]:
     """Guess whether the passed data is multiscale, process it accordingly.
 
@@ -51,7 +53,7 @@ def guess_multiscale(
     -------
     multiscale : bool
         True if the data is thought to be multiscale, False otherwise.
-    data : list or array
+    data : array of list or array
         The input data, perhaps with the leading axis removed.
     """
     # If the data has ndim and is not one-dimensional then cannot be multiscale
@@ -61,8 +63,10 @@ def guess_multiscale(
     if isinstance(data, MultiScaleData):
         return True, data
 
-    if hasattr(data, 'ndim') and data.ndim > 1:
-        return False, data
+    if isinstance(data, LayerDataProtocol):
+        if data.ndim > 1:
+            return False, data
+        data = [data[i] for i in range(data.shape[0])]
 
     if isinstance(data, (list, tuple)) and len(data) == 1:
         # pyramid with only one level, unwrap

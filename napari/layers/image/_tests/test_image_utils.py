@@ -38,19 +38,20 @@ def test_guess_rgb_property(shape):
 
 
 def test_guess_multiscale():
-    data = np.random.random((10, 15))
+    rng = np.random.default_rng(0)
+    data = rng.random((10, 15))
     assert not guess_multiscale(data)[0]
 
-    data = np.random.random((10, 15, 6))
+    data = rng.random((10, 15, 6))
     assert not guess_multiscale(data)[0]
 
-    data = [np.random.random((10, 15, 6))]
+    data = [rng.random((10, 15, 6))]
     assert not guess_multiscale(data)[0]
 
-    data = [np.random.random((10, 15, 6)), np.random.random((5, 7, 3))]
+    data = [rng.random((10, 15, 6)), rng.random((5, 7, 3))]
     assert guess_multiscale(data)[0]
 
-    data = [np.random.random((10, 15, 6)), np.random.random((10, 7, 3))]
+    data = [rng.random((10, 15, 6)), rng.random((10, 7, 3))]
     assert guess_multiscale(data)[0]
 
     data = tuple(data)
@@ -61,13 +62,11 @@ def test_guess_multiscale():
     else:
         pyramid_kwargs = {'multichannel': False}
 
-    data = tuple(
-        pyramid_gaussian(np.random.random((10, 15)), **pyramid_kwargs)
-    )
+    data = tuple(pyramid_gaussian(rng.random((10, 15)), **pyramid_kwargs))
     assert guess_multiscale(data)[0]
 
     data = np.asarray(
-        tuple(pyramid_gaussian(np.random.random((10, 15)), **pyramid_kwargs)),
+        tuple(pyramid_gaussian(rng.random((10, 15)), **pyramid_kwargs)),
         dtype=object,
     )
     assert guess_multiscale(data)[0]
