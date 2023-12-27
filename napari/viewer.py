@@ -33,7 +33,7 @@ class Viewer(ViewerModel):
         Whether to show the viewer after instantiation. By default True.
     """
 
-    _window: 'Window' = None  # type: ignore
+    _window: 'Window'
     if sys.version_info < (3, 9):
         _instances: typing.ClassVar[WeakSet] = WeakSet()
     else:

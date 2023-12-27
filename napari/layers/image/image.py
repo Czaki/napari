@@ -453,7 +453,7 @@ class _ImageBase(IntensityVisualizationMixin, Layer):
     def data(self, data: Union[LayerDataProtocol, MultiScaleData]):
         self._data_raw = data
         # note, we don't support changing multiscale in an Image instance
-        self._data = MultiScaleData(data) if self.multiscale else data  # type: ignore
+        self._data = MultiScaleData(data) if self.multiscale else data  # type: ignore[arg-type]
         self._update_dims()
         self.events.data(value=self.data)
         if self._keep_auto_contrast:

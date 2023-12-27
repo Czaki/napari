@@ -62,8 +62,8 @@ class PydanticYamlMixin(BaseModel):
     def yaml(
         self,
         *,
-        include: Union[AbstractSetIntStr, MappingIntStrAny] = None,  # type: ignore
-        exclude: Union[AbstractSetIntStr, MappingIntStrAny] = None,  # type: ignore
+        include: Union[AbstractSetIntStr, MappingIntStrAny, None] = None,
+        exclude: Union[AbstractSetIntStr, MappingIntStrAny, None] = None,
         by_alias: bool = False,
         exclude_unset: bool = False,
         exclude_defaults: bool = False,

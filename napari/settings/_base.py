@@ -124,8 +124,8 @@ class EventedConfigFileSettings(EventedSettings, PydanticYamlMixin):
     def dict(
         self,
         *,
-        include: Union[AbstractSetIntStr, MappingIntStrAny] = None,  # type: ignore
-        exclude: Union[AbstractSetIntStr, MappingIntStrAny] = None,  # type: ignore
+        include: Union[AbstractSetIntStr, MappingIntStrAny, None] = None,
+        exclude: Union[AbstractSetIntStr, MappingIntStrAny, None] = None,
         by_alias: bool = False,
         exclude_unset: bool = False,
         exclude_defaults: bool = False,
@@ -478,12 +478,13 @@ def _remove_bad_keys(data: dict, keys: List[Tuple[Union[int, str], ...]]):
     {'a': 1, 'b': {'c': 2}}
 
     """
-    for key in keys:
-        if not key:
+    for key_ in keys:
+        if not key_:
             continue  # pragma: no cover
+        key = list(key_)
         d = data
         while True:
-            base, *key = key  # type: ignore
+            base, *key = key
             if not key:
                 break
             # since no pydantic fields will be integers, integers usually

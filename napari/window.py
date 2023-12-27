@@ -16,7 +16,7 @@ try:
 except ImportError as e:
     err = e
 
-    class Window:  # type: ignore
+    class Window:  # type: ignore [no-redef]
         def __init__(self, *args, **kwargs) -> None:
             pass
 

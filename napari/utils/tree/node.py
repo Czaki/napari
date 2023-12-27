@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Generator, List, Optional, Tuple
+from typing import TYPE_CHECKING, Generator, List, Optional, Tuple, cast
 
 from napari.utils.translations import trans
 
@@ -59,7 +59,7 @@ class Node:
         item = self
         indices: List[int] = []
         while item.parent is not None:
-            indices.insert(0, item.index_in_parent())  # type: ignore
+            indices.insert(0, cast(int, item.index_in_parent()))
             item = item.parent
         return tuple(indices)
 

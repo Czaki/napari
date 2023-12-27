@@ -144,13 +144,14 @@ class NapariPluginManager(PluginManager):
         self.unregister_theme_colors(_name)
 
         # remove widgets, sample data, theme data
-        for _dict in (
+        for _dict in [
             self._dock_widgets,
             self._sample_data,
             self._theme_data,
             self._function_widgets,
-        ):
-            _dict.pop(_name, None)  # type: ignore
+        ]:
+            # mypy do not determine, that _dict is a dict
+            _dict.pop(_name, None)  # type: ignore [attr-defined]
 
         self.events.unregistered(value=_name)
 
@@ -405,7 +406,7 @@ class NapariPluginManager(PluginManager):
         settings = get_settings()
         current_theme = settings.appearance.theme
         if current_theme in self._theme_data[plugin_name]:
-            settings.appearance.theme = "dark"  # type: ignore
+            settings.appearance.theme = "dark"  # type: ignore [assignment]
             warnings.warn(
                 message=trans._(
                     "The current theme {current_theme!r} was provided by the plugin {plugin_name!r} which was disabled or removed. Switched theme to the default.",
@@ -472,18 +473,18 @@ class NapariPluginManager(PluginManager):
                     )
                     warn(message=warn_message)
                     continue
-                _cls = arg[0]
+                cls_ = arg[0]
                 kwargs = arg[1] if len(arg) > 1 else {}
             else:
-                _cls, kwargs = (arg, {})
+                cls_, kwargs = (arg, {})
 
-            if not callable(_cls):
+            if not callable(cls_):
                 warn_message = trans._(
-                    'Plugin {plugin_name!r} provided a non-callable object (widget) to {hook_name}: {_cls!r}. Widget ignored.',
+                    'Plugin {plugin_name!r} provided a non-callable object (widget) to {hook_name}: {cls_!r}. Widget ignored.',
                     deferred=True,
                     plugin_name=plugin_name,
                     hook_name=hook_name,
-                    _cls=_cls,
+                    cls_=cls_,
                 )
                 warn(message=warn_message)
 
@@ -495,14 +496,14 @@ class NapariPluginManager(PluginManager):
                     deferred=True,
                     plugin_name=plugin_name,
                     hook_name=hook_name,
-                    clsname=_cls.__name__,
+                    clsname=cls_.__name__,
                 )
                 warn(message=warn_message)
                 continue
 
             # Get widget name
             name = str(kwargs.get('name', '')) or camel_to_spaces(
-                _cls.__name__
+                cls_.__name__
             )
 
             if plugin_name not in self._dock_widgets:
@@ -517,7 +518,7 @@ class NapariPluginManager(PluginManager):
                 )
                 warn(message=warn_message)
 
-            self._dock_widgets[plugin_name][name] = (_cls, kwargs)
+            self._dock_widgets[plugin_name][name] = (cls_, kwargs)
 
     def register_function_widget(
         self,

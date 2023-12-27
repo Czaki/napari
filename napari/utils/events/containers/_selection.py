@@ -182,7 +182,7 @@ class Selection(EventedSet[_T]):
         if errors:
             from napari._pydantic_compat import ValidationError
 
-            raise ValidationError(errors, cls)  # type: ignore
+            raise ValidationError(errors, cls)
         obj = cls(data=data)
         obj._current_ = current
         return obj
@@ -198,7 +198,7 @@ class Selectable(Generic[_S]):
 
     def __init__(self, *args, **kwargs) -> None:
         self._selection: Selection[_S] = Selection()
-        super().__init__(*args, **kwargs)  # type: ignore
+        super().__init__(*args, **kwargs)
 
     @property
     def selection(self) -> Selection[_S]:

@@ -83,7 +83,9 @@ ExcInfo = Union[
 
 # Types for GUI HookSpecs
 WidgetCallable = Callable[..., Union['FunctionGui', 'QWidget']]
-AugmentedWidget = Union[WidgetCallable, Tuple[WidgetCallable, dict]]
+AugmentedWidget = Union[
+    WidgetCallable, Tuple[WidgetCallable, dict], Tuple[WidgetCallable]
+]
 
 
 # Sample Data for napari_provide_sample_data hookspec is either a string/path
