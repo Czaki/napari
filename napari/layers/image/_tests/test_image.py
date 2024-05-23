@@ -1,5 +1,6 @@
 import dask.array as da
 import numpy as np
+import numpy.testing as npt
 import pytest
 import xarray as xr
 
@@ -9,6 +10,10 @@ from napari.layers import Image
 from napari.layers.image._image_constants import ImageRendering
 from napari.layers.utils.plane import ClippingPlaneList, SlicingPlane
 from napari.utils import Colormap
+from napari.utils._test_utils import (
+    validate_all_params_in_docstring,
+    validate_kwargs_sorted,
+)
 from napari.utils.transforms.transform_utils import rotate_to_matrix
 
 
@@ -208,7 +213,7 @@ def test_non_rgb_image():
     assert layer._data_view.shape == shape[-2:]
 
 
-@pytest.mark.parametrize("shape", [(10, 15, 6), (10, 10)])
+@pytest.mark.parametrize('shape', [(10, 15, 6), (10, 10)])
 def test_error_non_rgb_image(shape):
     """Test error on trying non rgb as rgb."""
     # If rgb is set to be True in constructor but the last dim has a
@@ -448,12 +453,12 @@ def test_set_contrast_limits_range():
 
 @pytest.mark.parametrize(
     'contrast_limits_range',
-    (
+    [
         [-2, -1],  # range below lower boundary of [0, 1]
         [-1, 0],  # range on lower boundary of [0, 1]
         [1, 2],  # range on upper boundary of [0, 1]
         [2, 3],  # range above upper boundary of [0, 1]
-    ),
+    ],
 )
 def test_set_contrast_limits_range_at_boundary_of_contrast_limits(
     contrast_limits_range,
@@ -560,7 +565,7 @@ def test_value():
 
 
 @pytest.mark.parametrize(
-    'position,view_direction,dims_displayed,world',
+    ('position', 'view_direction', 'dims_displayed', 'world'),
     [
         ((0, 0, 0), [1, 0, 0], [0, 1, 2], False),
         ((0, 0, 0), [1, 0, 0], [0, 1, 2], True),
@@ -643,7 +648,7 @@ def test_out_of_range_no_contrast(dtype):
 
 
 @pytest.mark.parametrize(
-    "scale",
+    'scale',
     [
         (None),
         ([1, 1]),
@@ -661,7 +666,7 @@ def test_image_scale(scale):
 
 
 @pytest.mark.parametrize(
-    "translate",
+    'translate',
     [
         (None),
         ([1, 1]),
@@ -728,7 +733,7 @@ def test_data_to_world_2d_scale_translate_affine_composed():
     )
 
 
-@pytest.mark.parametrize('scale', ((1, 1), (-1, 1), (1, -1), (-1, -1)))
+@pytest.mark.parametrize('scale', [(1, 1), (-1, 1), (1, -1), (-1, -1)])
 @pytest.mark.parametrize('angle_degrees', range(-180, 180, 30))
 def test_rotate_with_reflections_in_scale(scale, angle_degrees):
     # See the GitHub issue for more details:
@@ -838,7 +843,13 @@ def test_tensorstore_image():
 
 
 @pytest.mark.parametrize(
-    "start_position, end_position, view_direction, vector, expected_value",
+    (
+        'start_position',
+        'end_position',
+        'view_direction',
+        'vector',
+        'expected_value',
+    ),
     [
         # drag vector parallel to view direction
         # projected onto perpendicular vector
@@ -846,9 +857,6 @@ def test_tensorstore_image():
         # same as above, projection onto multiple perpendicular vectors
         # should produce multiple results
         ([0, 0, 0], [0, 0, 1], [0, 0, 1], [[1, 0, 0], [0, 1, 0]], [0, 0]),
-        # drag vector perpendicular to view direction
-        # projected onto itself
-        ([0, 0, 0], [0, 1, 0], [0, 0, 1], [0, 1, 0], 1),
         # drag vector perpendicular to view direction
         # projected onto itself
         ([0, 0, 0], [0, 1, 0], [0, 0, 1], [0, 1, 0], 1),
@@ -948,6 +956,27 @@ def test_thick_slice():
     )
 
 
+def test_adjust_contrast_out_of_range():
+    arr = np.linspace(1, 9, 5 * 5, dtype=np.float64).reshape((5, 5))
+    img_lay = Image(arr)
+    npt.assert_array_equal(img_lay._slice.image.view, img_lay._slice.image.raw)
+    img_lay.contrast_limits = (0, float(np.finfo(np.float32).max) * 2)
+    assert not np.array_equal(
+        img_lay._slice.image.view, img_lay._slice.image.raw
+    )
+
+
+def test_adjust_contrast_limits_range_set_data():
+    arr = np.linspace(1, 9, 5 * 5, dtype=np.float64).reshape((5, 5))
+    img_lay = Image(arr)
+    img_lay._keep_auto_contrast = True
+    npt.assert_array_equal(img_lay._slice.image.view, img_lay._slice.image.raw)
+    img_lay.data = arr * 1e39
+    assert not np.array_equal(
+        img_lay._slice.image.view, img_lay._slice.image.raw
+    )
+
+
 def test_thick_slice_multiscale():
     data = np.ones((5, 5, 5)) * np.arange(5).reshape(-1, 1, 1)
     data_zoom = data.repeat(2, 0).repeat(2, 1).repeat(2, 2)
@@ -1000,3 +1029,8 @@ def test_thick_slice_multiscale():
     np.testing.assert_array_equal(
         layer._slice.image.raw, np.mean(data[2:5], axis=0)
     )
+
+
+def test_docstring():
+    validate_all_params_in_docstring(Image)
+    validate_kwargs_sorted(Image)

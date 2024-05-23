@@ -1,5 +1,5 @@
-"""compatibility between newer and older python versions
-"""
+"""compatibility between newer and older python versions"""
+
 import sys
 
 if sys.version_info >= (3, 11):

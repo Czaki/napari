@@ -1,5 +1,4 @@
-"""ExperimentalNamespace and CommandProcessor classes.
-"""
+"""ExperimentalNamespace and CommandProcessor classes."""
 
 HELP_STR = """
 Available Commands
@@ -32,7 +31,7 @@ class CommandProcessor:
         return LoaderCommands(self.layers)
 
     def __repr__(self):
-        return "Available Commands:\nexperimental.cmds.loader"
+        return 'Available Commands:\nexperimental.cmds.loader'
 
 
 class ExperimentalNamespace:
@@ -55,4 +54,4 @@ class ExperimentalNamespace:
         return CommandProcessor(self.layers)
 
     def __repr__(self):
-        return "Available Commands:\nexperimental.cmds.loader"
+        return 'Available Commands:\nexperimental.cmds.loader'

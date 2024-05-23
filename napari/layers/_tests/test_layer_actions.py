@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+import zarr
 
 from napari.components.layerlist import LayerList
 from napari.layers import Image, Labels, Points, Shapes
@@ -62,15 +63,15 @@ def test_duplicate_layers(layer_type):
         pass
 
     layer_list = LayerList()
-    layer_list.append(layer_type([], name="test"))
+    layer_list.append(layer_type([], name='test'))
     layer_list.selection.active = layer_list[0]
     layer_list[0].events.data.connect(_dummy)
     assert len(layer_list[0].events.data.callbacks) == 2
     assert len(layer_list) == 1
     _duplicate_layer(layer_list)
     assert len(layer_list) == 2
-    assert layer_list[0].name == "test"
-    assert layer_list[1].name == "test copy"
+    assert layer_list[0].name == 'test'
+    assert layer_list[1].name == 'test copy'
     assert layer_list[1].events.source is layer_list[1]
     assert (
         len(layer_list[1].events.data.callbacks) == 1
@@ -196,9 +197,15 @@ def test_convert_dtype(mode):
 
 
 @pytest.mark.parametrize(
-    'layer, type_',
+    ('layer', 'type_'),
     [
         (Image(np.random.rand(10, 10)), 'labels'),
+        (Image(np.array([[1.5, 2.5], [3.5, 4.5]])), 'labels'),
+        (Image(np.array([[1, 2], [3, 4]], dtype=(int))), 'labels'),
+        (
+            Image(zarr.array([[1, 2], [3, 4]], dtype=(int), chunks=(1, 2))),
+            'labels',
+        ),
         (Labels(np.ones((10, 10), dtype=int)), 'image'),
         (Shapes([np.array([[0, 0], [0, 10], [10, 0], [10, 10]])]), 'labels'),
     ],
@@ -210,13 +217,22 @@ def test_convert_layer(layer, type_):
     ll.append(layer)
     assert ll[0]._type_string != type_
     _convert(ll, type_)
-    assert ll[0]._type_string == type_
-    assert np.array_equal(ll[0].scale, original_scale)
+    if isinstance(layer, Shapes) or (
+        type_ == 'labels'
+        and isinstance(layer, Image)
+        and np.issubdtype(layer.data.dtype, float)
+    ):
+        assert ll[1]._type_string == type_
+        assert np.array_equal(ll[1].scale, original_scale)
+    else:
+        assert (
+            layer.data is ll[0].data
+        )  # check array data not copied unnecessarily
 
 
 def make_three_layer_layerlist():
     layer_list = LayerList()
-    layer_list.append(Points([[0, 0]], name="test"))
+    layer_list.append(Points([[0, 0]], name='test'))
     layer_list.append(Image(np.random.rand(8, 8, 8)))
     layer_list.append(Image(np.random.rand(8, 8, 8)))
 
