@@ -103,6 +103,7 @@ class QtPerformance(QWidget):
         self.start_time = time.time()
 
         # Label for our progress bar.
+        # Label for our progress bar.
         bar_label = QLabel(trans._('Draw Time:'))
         layout.addWidget(bar_label)
 
@@ -154,6 +155,7 @@ class QtPerformance(QWidget):
     def _get_timer_info(self):
         """Get the information from the timers that we want to display."""
         average = None
+        average_li = []
         long_events = []
 
         # We don't update any GUI/widgets while iterating over the timers.
@@ -164,11 +166,13 @@ class QtPerformance(QWidget):
             # that's what we use for our progress bar.
             if name.startswith('UpdateRequest'):
                 average = timer.average
+                average_li.append(timer.average)
 
             # Log any "long" events to the text window.
             if timer.max >= self.thresh_ms:
                 long_events.append((name, timer.max))
-
+        if average_li:
+            average = max(average_li)
         return average, long_events
 
     def update(self):
