@@ -1,6 +1,8 @@
 """QtPerformance widget to show performance information."""
 
 import time
+from collections import deque
+from statistics import mean
 from typing import ClassVar
 
 from qtpy.QtCore import Qt, QTimer
@@ -19,6 +21,40 @@ from qtpy.QtWidgets import (
 
 from napari.utils import perf
 from napari.utils.translations import trans
+
+MEAN_DRAW_TIME = 2.0  # seconds
+
+
+class TimeBasedCircularBuffer:
+    def __init__(self, duration_seconds):
+        self.buffer = deque()
+        self.duration_seconds = duration_seconds
+
+    def add_event(self, event):
+        current_time = time.time()
+        # Append event with current timestamp
+        self.buffer.append((event, current_time))
+        self._remove_old_events()
+
+    def _remove_old_events(self):
+        current_time = time.time()
+        # Remove events older than duration_seconds
+        while (
+            self.buffer
+            and current_time - self.buffer[0][1] > self.duration_seconds
+        ):
+            self.buffer.popleft()
+
+    def get_recent_events(self):
+        # Optionally, remove old events first
+        self._remove_old_events()
+        # Return a list of recent events without timestamps
+        return [event for event, _ in self.buffer]
+
+    def aggregate(self, aggregation_func):
+        # Apply the aggregation function to the recent events
+        recent_events = self.get_recent_events()
+        return aggregation_func(recent_events)
 
 
 class TextLog(QTextEdit):
@@ -101,10 +137,16 @@ class QtPerformance(QWidget):
 
         # For our "uptime" timer.
         self.start_time = time.time()
+        self._average_queue = TimeBasedCircularBuffer(MEAN_DRAW_TIME)
 
         # Label for our progress bar.
         # Label for our progress bar.
-        bar_label = QLabel(trans._('Draw Time:'))
+        bar_label = QLabel(
+            trans._(
+                'Mean draw time for last {mean_draw_time} seconds:',
+                mean_draw_time=MEAN_DRAW_TIME,
+            )
+        )
         layout.addWidget(bar_label)
 
         # Progress bar is not used for "progress", it's just a bar graph to show
@@ -187,7 +229,16 @@ class QtPerformance(QWidget):
 
         # Now safe to update the GUI: progress bar first.
         if average is not None:
-            self.bar.setValue(int(average))
+            self._average_queue.add_event(average)
+            time_avg = int(self._average_queue.aggregate(mean))
+            if time_avg > 1000:
+                self.bar.setMaximum(10000)
+            if time_avg > 100:
+                self.bar.setMaximum(1000)
+            else:
+                self.bar.setMaximum(100)
+
+            self.bar.setValue(time_avg)
 
         # And log any new slow events.
         for name, time_ms in long_events:
