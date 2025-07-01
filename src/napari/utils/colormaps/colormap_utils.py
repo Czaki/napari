@@ -243,6 +243,24 @@ def convert_vispy_colormap(colormap, name='vispy'):
     )
 
 
+class HackyVispyColormap(VispyColormap):
+    def _set_bad_color_glsl(self):
+        """Set the color mapping for NaN values."""
+        import re
+
+        r, g, b, a = self.bad_color.rgba
+
+        bad_color_glsl = f"""
+        // Map NaN to bad_color
+        if (t == -1/0) {{
+            return vec4({r:.3f}, {g:.3f}, {b:.3f}, {a:.3f});
+        }}"""
+
+        self.glsl_map = re.sub(
+            r'float t\) \{', f'float t) {{{bad_color_glsl}', self.glsl_map
+        )
+
+
 def _napari_cmap_to_vispy(colormap: Colormap) -> VispyColormap:
     """Convert a napari colormap to its equivalent vispy colormap."""
     cmap_args = colormap.dict()
