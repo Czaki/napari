@@ -4,6 +4,8 @@ import logging
 import weakref
 from typing import TYPE_CHECKING, Any
 
+from psygnal import SignalGroup
+
 if TYPE_CHECKING:
     from collections.abc import Callable
     from typing import Protocol
@@ -19,7 +21,9 @@ if TYPE_CHECKING:
 _logger = logging.getLogger(__name__)
 
 
-def disconnect_events(emitter: EmitterGroup, listener: object) -> None:
+def disconnect_events(
+    signal_group: EmitterGroup | SignalGroup, listener: object
+) -> None:
     """Disconnect all events between an emitter group and a listener.
 
     Parameters
@@ -29,8 +33,19 @@ def disconnect_events(emitter: EmitterGroup, listener: object) -> None:
     listener : Object
         Any object that has been connected to.
     """
-    for em in emitter.emitters.values():
-        em.disconnect(listener)
+    if isinstance(signal_group, SignalGroup):
+        signals = signal_group.signals
+    else:
+        # old events
+        signals = signal_group.emitters
+    for sig in signals.values():
+        try:
+            sig.disconnect(listener)
+        except TypeError:
+            # this is not a callable, so probably we wanted to disconnect its methods
+            for method in dir(listener):
+                if callable(method):
+                    sig.disconnect(method)
 
 
 def connect_setattr(
