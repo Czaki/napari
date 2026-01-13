@@ -3,12 +3,15 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import numpy.typing as npt
 
-from napari.layers._scalar_field._scalar_field_constants import (
+from napari.layers.base._base_constants import (
+    BaseProjectionMode,
+)
+from napari.layers.base._slice import _next_request_id
+from napari.layers.image._image_constants import (
     ImageProjectionMode,
 )
-from napari.layers._scalar_field._scalar_field_utils import project_slice
-from napari.layers.base._slice import _next_request_id
 from napari.layers.utils._slice_input import _SliceInput, _ThickNDSlice
 from napari.types import ArrayLike
 from napari.utils._dask_utils import DaskIndexer
@@ -204,7 +207,7 @@ class _ScalarFieldSliceRequest:
     data: Any = field(repr=False)
     dask_indexer: DaskIndexer
     data_slice: _ThickNDSlice
-    projection_mode: ImageProjectionMode
+    projection_mode: ImageProjectionMode | BaseProjectionMode
     multiscale: bool = field(repr=False)
     corner_pixels: np.ndarray
     rgb: bool = field(repr=False)
@@ -336,11 +339,17 @@ class _ScalarFieldSliceRequest:
             data_slice, self.slice_input.displayed
         )
 
-        return project_slice(
+        return self._project_slice(
             data=np.asarray(data[slices]),
             axis=tuple(self.slice_input.not_displayed),
             mode=self.projection_mode,
         )
+
+    @staticmethod
+    def _project_slice(
+        data: ArrayLike, axis: tuple[int, ...], mode: Any
+    ) -> npt.NDArray:
+        raise NotImplementedError
 
     def _get_order(self) -> tuple[int, ...]:
         """Return the ordered displayed dimensions, but reduced to fit in the slice space."""
