@@ -5,13 +5,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import numpy.typing as npt
 
-from napari.layers.base._base_constants import (
-    BaseProjectionMode,
-)
 from napari.layers.base._slice import _next_request_id
-from napari.layers.image._image_constants import (
-    ImageProjectionMode,
-)
 from napari.layers.utils._slice_input import _SliceInput, _ThickNDSlice
 from napari.types import ArrayLike
 from napari.utils._dask_utils import DaskIndexer
@@ -207,7 +201,7 @@ class _ScalarFieldSliceRequest:
     data: Any = field(repr=False)
     dask_indexer: DaskIndexer
     data_slice: _ThickNDSlice
-    projection_mode: ImageProjectionMode | BaseProjectionMode
+    projection_mode: Any
     multiscale: bool = field(repr=False)
     corner_pixels: np.ndarray
     rgb: bool = field(repr=False)
