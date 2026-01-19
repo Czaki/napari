@@ -533,7 +533,7 @@ pydantic-core==2.41.5
     # via pydantic
 pydata-sphinx-theme==0.16.1
     # via napari-sphinx-theme
-pydeps==3.0.1
+pydeps==3.0.2
     # via napari (pyproject.toml:docs)
 pygetwindow==0.0.9
     # via pyautogui
