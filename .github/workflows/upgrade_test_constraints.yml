@@ -130,6 +130,13 @@ jobs:
           # This action pushes changes to the bot repo and then opens a PR to the napari repo.
           persist-credentials: 'true'
 
+      - name: Clone napari/napari
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: napari/napari
+          path: napari_main
+          persist-credentials: 'false'
+
       - name: Add napari-bot/napari to napari_repo upstreams
         run: |
           cd napari_repo
@@ -145,7 +152,7 @@ jobs:
         # ADD YOUR CUSTOM DEPENDENCY UPGRADE COMMANDS BELOW
         run: |
           set -x
-          bash napari_repo/tools/compile_constraints.sh
+          bash napari_repo/tools/compile_constraints.sh napari_repo/
 
       # END PYTHON DEPENDENCIES
 
