@@ -14,7 +14,14 @@ from pydantic import (
 from pydantic._internal._model_construction import ModelMetaclass
 
 from napari._pydantic_util import get_inner_type, get_outer_type
-from napari.utils.events.event import EmitterGroup, Event, WarningEmitter
+from napari.utils.events.event import (
+    EmitterGroup,
+    Event,
+    EventEmitter,
+    RenamedEmitter,
+    WarningEmitter,
+)
+from napari.utils.migrations import RenamedProperty
 from napari.utils.misc import pick_equality_operator
 
 # encoders for non-napari specific field types.  To declare a custom encoder
@@ -101,6 +108,8 @@ def _update_dependents_from_property_code(
 
     Update the given deps dictionary with the new findings.
     """
+    if isinstance(prop, RenamedProperty):
+        return
     for name in prop.fget.__code__.co_names:
         if name in cls.model_fields:
             deps.setdefault(name, set()).add(prop_name)
@@ -231,9 +240,7 @@ class EventedModel(BaseModel, metaclass=EventedMetaclass):
         ]
 
         property_events = {
-            name: WarningEmitter(**_get_deprecated_params(prop.fget))
-            if hasattr(prop.fget, '__deprecated__')
-            else None
+            name: _property_to_event_emitter(name, prop)
             for name, prop in self.__properties__.items()
         }
 
@@ -553,3 +560,22 @@ def _get_deprecated_params(function: FunctionType) -> _DeprecatedParam:
             category = closure[idx].cell_contents
             return _DeprecatedParam(message=message, category=category)
     return _DeprecatedParam(message=message)
+
+
+def _property_to_event_emitter(type_name: str, prop: property) -> EventEmitter:
+    """Convert a property to an EventEmitter.
+
+    If the property is deprecated, the EventEmitter will be a WarningEmitter.
+    """
+    if isinstance(prop, RenamedProperty):
+        return RenamedEmitter(
+            message=prop.event_message,
+            category=prop.category,
+            new_name=prop.new_name,
+            type_name=type_name,
+        )
+    if hasattr(prop, 'fget') and hasattr(prop.fget, '__deprecated__'):
+        return WarningEmitter(
+            type_name=type_name, **_get_deprecated_params(prop.fget)
+        )
+    return EventEmitter(type_name=type_name)

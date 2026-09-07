@@ -1,7 +1,7 @@
 import pytest
 
 from napari.utils.migrations import (
-    DeprecatedProperty,
+    RenamedProperty,
     _DeprecatingDict,
     add_deprecated_property,
     deprecated_class_name,
@@ -60,7 +60,7 @@ def test_deprecated_property(due_date) -> None:
 
     instance.new_property = 1
 
-    assert isinstance(Dummy.old_property, DeprecatedProperty)
+    assert isinstance(Dummy.old_property, RenamedProperty)
     msg = 'Dummy.old_property is deprecated since 0.0.0.'
     if due_date is not None:
         msg += f' Removal is scheduled for {due_date}.'
@@ -95,7 +95,7 @@ def test_deprecated_property_legacy_version(due_date):
         new = 1
 
     assert decorator(Sample) is Sample
-    assert isinstance(Sample.old, DeprecatedProperty)
+    assert isinstance(Sample.old, RenamedProperty)
     assert '0.1.0' not in Sample.old.message
     assert 'since 0.0.0' in Sample.old.message
     assert ('Removal is scheduled' in Sample.old.message) == (
@@ -321,7 +321,7 @@ def test_deprecated_property_descriptor():
         def new_property(self, value):
             self._value = value
 
-        old_property = DeprecatedProperty(
+        old_property = RenamedProperty(
             new_name='new_property',
             since_version='0.1.0',
         )
@@ -352,7 +352,7 @@ def test_deprecated_property_descriptor_nested():
         def __init__(self):
             self.subsample = SubSample()
 
-        old_property = DeprecatedProperty(
+        old_property = RenamedProperty(
             new_name='subsample.value',
             since_version='0.1.0',
             due_date='fall 2027',
@@ -385,7 +385,7 @@ def test_deprecated_property_descriptor_no_writing():
         def new_property(self):  # pragma: no cover
             return self._value
 
-        old_property = DeprecatedProperty(
+        old_property = RenamedProperty(
             new_name='new_property', since_version='0.1.0', writable=False
         )
 

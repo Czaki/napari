@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 _UNSET = object()
 
 
-class DeprecatedProperty(property):
+class RenamedProperty(property):
     """A property that is deprecated."""
 
     def __init__(
@@ -51,6 +51,14 @@ class DeprecatedProperty(property):
         self._name = name
 
     @property
+    def new_name(self) -> str:
+        return self._new_name
+
+    @property
+    def category(self) -> type[Warning]:
+        return self._category
+
+    @property
     def message(self) -> str:
         name = (
             f'{self._owner_name}.{self._name}'
@@ -66,6 +74,25 @@ class DeprecatedProperty(property):
         return (
             f'{name} is deprecated{since}.'
             f'{schedule} Please use {self._new_name} instead.'
+        )
+
+    @property
+    def event_message(self) -> str:
+        name = (
+            f'{self._owner_name}.events.{self._name}'
+            if self._name is not None
+            else 'This event'
+        )
+        since = f' since {self._since_version}' if self._since_version else ''
+        schedule = (
+            f' Removal is scheduled for {self._due_date}.'
+            if self._due_date is not None
+            else ''
+        )
+        new_name = f'{self._owner_name}.{".".join(self._parent_path + ("events", self._target_name))}'
+        return (
+            f'{name} is deprecated{since}.'
+            f'{schedule} Please use {new_name} instead.'
         )
 
     def __get__(self, instance, owner=None):
@@ -181,6 +208,9 @@ def add_deprecated_property(
     due_date : str, optional
         Announced removal date or season, such as "spring 2027". If omitted,
         no removal date is announced. This does not automatically disable access.
+
+    ..deprecated:: 0.9.2
+        `version` argument is deprecated and ignored. Use `due_date` to specify a removal date, or omit it for no announced removal date.
     """
     if version is not None:
         warnings.warn(
@@ -198,7 +228,7 @@ def add_deprecated_property(
         if not hasattr(obj, new_name):
             raise RuntimeError(f'{new_name} property must exist.')
 
-        prop = DeprecatedProperty(
+        prop = RenamedProperty(
             new_name=new_name, since_version=since_version, due_date=due_date
         )
         setattr(obj, previous_name, prop)

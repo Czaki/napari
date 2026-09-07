@@ -16,6 +16,7 @@ from typing_extensions import deprecated
 from napari._pydantic_util import NapariConfigDict
 from napari.utils.events import EmitterGroup, EventedModel
 from napari.utils.events.custom_types import Array
+from napari.utils.migrations import RenamedProperty
 from napari.utils.misc import StringEnum
 
 if TYPE_CHECKING:
@@ -919,3 +920,59 @@ def test_overwriting_deprecation_text_in_subclass():
 
     with pytest.warns(DeprecationWarning, match='new deprecation text'):
         s.events.b.connect(lambda x: None)
+
+
+def test_renamed_property():
+    class Base(EventedModel):
+        a: int = 1
+        b = RenamedProperty(
+            new_name='a',
+            since_version='0.1.0',
+            due_date='fall 2027',
+        )
+
+    s = Base()
+
+    with pytest.warns(FutureWarning, match='Base.b is deprecated since 0.1.0'):
+        assert s.b == 1
+
+    mock = Mock()
+    with pytest.warns(
+        FutureWarning,
+        match='Base.events.b is deprecated since 0.1.0.*Please use .*Base.events.a instead',
+    ):
+        s.events.b.connect(mock)
+
+    s.a = 2
+    mock.assert_called_once()
+
+
+def test_renamed_property_nested():
+
+    class Sub(EventedModel):
+        a: int = 2
+
+    class Base(EventedModel):
+        s: Sub = Field(default_factory=Sub)
+        a = RenamedProperty(
+            new_name='s.a',
+            since_version='0.1.0',
+            due_date='fall 2027',
+        )
+
+    s = Base()
+
+    with pytest.warns(FutureWarning, match='Base.a is deprecated since 0.1.0'):
+        assert s.a == 2
+
+    mock = Mock()
+
+    with pytest.warns(
+        FutureWarning,
+        match='Base.events.a is deprecated since 0.1.0.*Please use .*Base.s.events.a instead',
+    ):
+        s.events.a.connect(mock)
+
+    s.s.a = 3
+
+    mock.assert_called_once()
