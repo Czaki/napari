@@ -13,7 +13,49 @@ _UNSET = object()
 
 
 class RenamedProperty(property):
-    """A property that is deprecated."""
+    """A deprecated alias that forwards access to a renamed or moved attribute.
+
+    Reading or writing the alias emits a warning and accesses the target
+    attribute. Access through the class returns the descriptor without warning.
+
+    Parameters
+    ----------
+    new_name : str
+        Target attribute name or dotted path relative to the instance, such as
+        ``appearance.size``. Each path component must be a Python identifier.
+    since_version : str
+        Version in which the alias was deprecated. An empty string omits the
+        version from warning messages.
+    due_date : str, optional
+        Announced removal date or season, such as ``spring 2027``. If omitted,
+        no removal date is announced. This does not automatically disable access.
+    category : type of Warning, optional
+        Warning category used for access and assignment. Defaults to FutureWarning.
+    writable : bool, optional
+        Whether assignment through the alias is allowed. Defaults to True.
+        The target must also support assignment.
+    doc : str, optional
+        Documentation for the alias. A deprecation directive is appended unless
+        the text already contains ``.. deprecated::``.
+
+    Raises
+    ------
+    ValueError
+        If the target path is empty or contains an invalid component.
+
+    Notes
+    -----
+    Declare the descriptor in the class body to initialize its owner and name
+    automatically. When attaching it after class creation, call ``__set_name__``
+    explicitly. Define custom accessors on the target property; the inherited
+    ``getter``, ``setter``, and ``deleter`` helpers are not supported.
+
+    Examples
+    --------
+    >>> class Settings:
+    ...     size = 10
+    ...     old_size = RenamedProperty(new_name='size', since_version='0.7.0')
+    """
 
     def __init__(
         self,
@@ -47,19 +89,23 @@ class RenamedProperty(property):
         super().__init__(doc=doc)
 
     def __set_name__(self, owner: type, name: str) -> None:
+        """Record the owning class and alias name for warning messages."""
         self._owner_name = owner.__qualname__
         self._name = name
 
     @property
     def new_name(self) -> str:
+        """Target attribute name or dotted path relative to the instance."""
         return self._new_name
 
     @property
     def category(self) -> type[Warning]:
+        """Warning category used when reading or writing the alias."""
         return self._category
 
     @property
     def message(self) -> str:
+        """Deprecation warning text for access to the aliased attribute."""
         name = (
             f'{self._owner_name}.{self._name}'
             if self._name is not None
@@ -78,6 +124,12 @@ class RenamedProperty(property):
 
     @property
     def event_message(self) -> str:
+        """Deprecation warning text for the corresponding renamed event.
+
+        The replacement event belongs to the target attribute's parent object:
+        a target of ``appearance.size`` uses ``appearance.events.size``.
+        This property only provides the message; it does not create an emitter.
+        """
         name = (
             f'{self._owner_name}.events.{self._name}'
             if self._name is not None
@@ -96,6 +148,7 @@ class RenamedProperty(property):
         )
 
     def __get__(self, instance, owner=None):
+        """Warn and read the target, or return this descriptor for class access."""
         if instance is None:
             return self
 
@@ -103,6 +156,7 @@ class RenamedProperty(property):
         return getattr(self._resolve_parent(instance), self._target_name)
 
     def __set__(self, instance, value):
+        """Warn and assign to the target, raising AttributeError if read-only."""
         if not self._writable:
             raise AttributeError(f'{self._name} has no setter')
 
@@ -110,6 +164,7 @@ class RenamedProperty(property):
         setattr(self._resolve_parent(instance), self._target_name, value)
 
     def _resolve_parent(self, instance):
+        """Resolve the object that holds the final attribute in the target path."""
         target = instance
         for part in self._parent_path:
             target = getattr(target, part)
