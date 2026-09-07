@@ -157,27 +157,38 @@ def rename_argument(
 
 
 def add_deprecated_property(
+    *,
     previous_name: str,
     new_name: str,
-    version: str,
-    since_version: str,
+    version: str | None = None,
+    since_version: str = '',
+    due_date: str | None = None,
 ) -> Callable[[type], type]:
     """
     Adds deprecated property and links to new property name setter and getter.
 
     Parameters
     ----------
-    obj:
-        Class instances to add property
     previous_name : str
         Name of previous property, its methods must be removed.
     new_name : str
         Name of new property, must have its getter (and setter if applicable) implemented.
-    version : str
-        Version where deprecated property will be removed.
+    version : str, optional
+        Deprecated and ignored. Use ``due_date`` to announce a removal date.
     since_version : str
         version when new property was added
+    due_date : str, optional
+        Announced removal date or season, such as "spring 2027". If omitted,
+        no removal date is announced. This does not automatically disable access.
     """
+    if version is not None:
+        warnings.warn(
+            "The 'version' argument to add_deprecated_property is deprecated "
+            "and ignored. Use 'due_date' to specify a removal date, or omit "
+            'it for no announced removal date.',
+            FutureWarning,
+            stacklevel=2,
+        )
 
     def _func(obj: type) -> type:
         if hasattr(obj, previous_name):
@@ -186,18 +197,9 @@ def add_deprecated_property(
         if not hasattr(obj, new_name):
             raise RuntimeError(f'{new_name} property must exist.')
 
-        name = f'{obj.__name__}.{previous_name}'
-        msg = f'{name} is deprecated since {since_version} and will be removed in {version}. Please use {new_name}'
-
-        def _getter(instance) -> Any:
-            warnings.warn(msg, category=FutureWarning, stacklevel=3)
-            return getattr(instance, new_name)
-
-        def _setter(instance, value: Any) -> None:
-            warnings.warn(msg, category=FutureWarning, stacklevel=3)
-            setattr(instance, new_name, value)
-
-        setattr(obj, previous_name, property(_getter, _setter))
+        prop = DeprecatedProperty(new_name, since_version, due_date=due_date)
+        setattr(obj, previous_name, prop)
+        prop.__set_name__(obj, previous_name)
         return obj
 
     return _func
