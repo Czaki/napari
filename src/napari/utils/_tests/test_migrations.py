@@ -1,6 +1,7 @@
 import pytest
 
 from napari.utils.migrations import (
+    DeprecatedProperty,
     _DeprecatingDict,
     add_deprecated_property,
     deprecated_class_name,
@@ -34,6 +35,7 @@ def test_constructor():
 
 
 def test_deprecated_property() -> None:
+    @add_deprecated_property('old_property', 'new_property', '0.1.0', '0.0.0')
     class Dummy:
         def __init__(self) -> None:
             self._value = 0
@@ -47,10 +49,6 @@ def test_deprecated_property() -> None:
             self._value = value
 
     instance = Dummy()
-
-    add_deprecated_property(
-        Dummy, 'old_property', 'new_property', '0.1.0', '0.0.0'
-    )
 
     assert instance.new_property == 0
 
@@ -243,3 +241,91 @@ def test_deprecating_dict_with_renamed_copy():
     assert d is not e
     assert e.data == d.data
     assert e.deprecated_keys == d.deprecated_keys
+
+
+def test_deprecated_property_descriptor():
+    class Sample:
+        def __init__(self):
+            self._value = 0
+
+        @property
+        def new_property(self):
+            return self._value
+
+        @new_property.setter
+        def new_property(self, value):
+            self._value = value
+
+        old_property = DeprecatedProperty(
+            'new_property',
+            '0.1.0',
+        )
+
+    instance = Sample()
+
+    assert instance.new_property == 0
+
+    instance.new_property = 1
+
+    msg = 'Sample.old_property is deprecated since 0.1.0. Please use new_property'
+
+    with pytest.warns(FutureWarning, match=msg):
+        assert instance.old_property == 1
+
+    with pytest.warns(FutureWarning, match=msg):
+        instance.old_property = 2
+
+    assert instance.new_property == 2
+
+
+def test_deprecated_property_descriptor_nested():
+    class SubSample:
+        def __init__(self):
+            self.value = 0
+
+    class Sample:
+        def __init__(self):
+            self.subsample = SubSample()
+
+        old_property = DeprecatedProperty(
+            'subsample.value',
+            '0.1.0',
+        )
+
+    instance = Sample()
+
+    assert instance.subsample.value == 0
+
+    with pytest.warns(
+        FutureWarning, match='Sample.old_property is deprecated since 0.1.0'
+    ):
+        assert instance.old_property == 0
+
+    with pytest.warns(
+        FutureWarning, match='Sample.old_property is deprecated since 0.1.0'
+    ):
+        instance.old_property = 1
+
+    assert instance.subsample.value == 1
+
+
+def test_deprecated_property_descriptor_no_writing():
+    class Sample:
+        def __init__(self):
+            self._value = 0
+
+        @property
+        def new_property(self):  # pragma: no cover
+            return self._value
+
+        old_property = DeprecatedProperty(
+            'new_property', '0.1.0', writable=False
+        )
+
+    instance = Sample()
+
+    with pytest.raises(AttributeError, match='has no setter'):
+        instance.old_property = 1
+
+    with pytest.raises(AttributeError, match='has no setter'):
+        instance.new_property = 2

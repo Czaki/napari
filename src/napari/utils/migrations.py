@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import inspect
 import warnings
 from collections import UserDict
@@ -8,6 +10,82 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 _UNSET = object()
+
+
+class DeprecatedProperty(property):
+    """A property that is deprecated."""
+
+    def __init__(
+        self,
+        new_name: str,
+        since_version: str,
+        due_date: str | None = None,
+        category: type[Warning] = FutureWarning,
+        writable: bool = True,
+        doc: str | None = None,
+    ):
+        parts = new_name.split('.')
+        if any(not part.isidentifier() for part in parts):
+            raise ValueError(f'Invalid attribute path: {new_name!r}')
+
+        self._new_name = new_name
+        self._since_version = since_version
+        self._due_date = due_date
+        self._category = category
+        self._writable = writable
+        self._owner_name: str | None = None
+        self._name: str | None = None
+        self._parent_path = tuple(parts[:-1])
+        self._target_name = parts[-1]
+        doc = doc or ''
+        if '.. deprecated::' not in doc:
+            doc += (
+                f'\n\n.. deprecated:: {since_version}\n'
+                f'    Use `{new_name}` instead.\n'
+            )
+        super().__init__(doc=doc)
+
+    def __set_name__(self, owner: type, name: str) -> None:
+        self._owner_name = owner.__qualname__
+        self._name = name
+
+    @property
+    def message(self) -> str:
+        name = (
+            f'{self._owner_name}.{self._name}'
+            if self._name is not None
+            else 'This property'
+        )
+        since = f' since {self._since_version}' if self._since_version else ''
+        schedule = (
+            f' Removal is scheduled for {self._due_date}.'
+            if self._due_date is not None
+            else ''
+        )
+        return (
+            f'{name} is deprecated{since}.'
+            f'{schedule} Please use {self._new_name} instead.'
+        )
+
+    def __get__(self, instance, owner=None):
+        if instance is None:
+            return self
+
+        warnings.warn(self.message, self._category, stacklevel=2)
+        return getattr(self._resolve_parent(instance), self._target_name)
+
+    def __set__(self, instance, value):
+        if not self._writable:
+            raise AttributeError(f'{self._name} has no setter')
+
+        warnings.warn(self.message, self._category, stacklevel=2)
+        setattr(self._resolve_parent(instance), self._target_name, value)
+
+    def _resolve_parent(self, instance):
+        target = instance
+        for part in self._parent_path:
+            target = getattr(target, part)
+        return target
 
 
 class _RenamedAttribute(NamedTuple):
@@ -27,7 +105,7 @@ class _RenamedAttribute(NamedTuple):
 
 def rename_argument(
     from_name: str, to_name: str, version: str, since_version: str = ''
-) -> 'Callable':
+) -> Callable:
     """
     This is decorator for simple rename function argument
     without break backward compatibility.
@@ -79,12 +157,11 @@ def rename_argument(
 
 
 def add_deprecated_property(
-    obj: Any,
     previous_name: str,
     new_name: str,
     version: str,
     since_version: str,
-) -> None:
+) -> Callable[[type], type]:
     """
     Adds deprecated property and links to new property name setter and getter.
 
@@ -102,27 +179,31 @@ def add_deprecated_property(
         version when new property was added
     """
 
-    if hasattr(obj, previous_name):
-        raise RuntimeError(f'{previous_name} property already exists.')
+    def _func(obj: type) -> type:
+        if hasattr(obj, previous_name):
+            raise RuntimeError(f'{previous_name} property already exists.')
 
-    if not hasattr(obj, new_name):
-        raise RuntimeError(f'{new_name} property must exist.')
+        if not hasattr(obj, new_name):
+            raise RuntimeError(f'{new_name} property must exist.')
 
-    name = f'{obj.__name__}.{previous_name}'
-    msg = f'{name} is deprecated since {since_version} and will be removed in {version}. Please use {new_name}'
+        name = f'{obj.__name__}.{previous_name}'
+        msg = f'{name} is deprecated since {since_version} and will be removed in {version}. Please use {new_name}'
 
-    def _getter(instance) -> Any:
-        warnings.warn(msg, category=FutureWarning, stacklevel=3)
-        return getattr(instance, new_name)
+        def _getter(instance) -> Any:
+            warnings.warn(msg, category=FutureWarning, stacklevel=3)
+            return getattr(instance, new_name)
 
-    def _setter(instance, value: Any) -> None:
-        warnings.warn(msg, category=FutureWarning, stacklevel=3)
-        setattr(instance, new_name, value)
+        def _setter(instance, value: Any) -> None:
+            warnings.warn(msg, category=FutureWarning, stacklevel=3)
+            setattr(instance, new_name, value)
 
-    setattr(obj, previous_name, property(_getter, _setter))
+        setattr(obj, previous_name, property(_getter, _setter))
+        return obj
+
+    return _func
 
 
-def deprecated_constructor_arg_by_attr(name: str) -> 'Callable':
+def deprecated_constructor_arg_by_attr(name: str) -> Callable:
     """
     Decorator to deprecate a constructor argument and remove it from the signature.
 
