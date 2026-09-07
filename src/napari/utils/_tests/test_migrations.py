@@ -124,7 +124,9 @@ def test_deprecated_property_invalid_names(previous_name, new_name, message):
         target = 2
 
     with pytest.raises(RuntimeError, match=message):
-        add_deprecated_property(previous_name, new_name)(Sample)
+        add_deprecated_property(
+            previous_name=previous_name, new_name=new_name
+        )(Sample)
     assert 'old' not in vars(Sample)
 
 
@@ -320,8 +322,8 @@ def test_deprecated_property_descriptor():
             self._value = value
 
         old_property = DeprecatedProperty(
-            'new_property',
-            '0.1.0',
+            new_name='new_property',
+            since_version='0.1.0',
         )
 
     instance = Sample()
@@ -351,8 +353,9 @@ def test_deprecated_property_descriptor_nested():
             self.subsample = SubSample()
 
         old_property = DeprecatedProperty(
-            'subsample.value',
-            '0.1.0',
+            new_name='subsample.value',
+            since_version='0.1.0',
+            due_date='fall 2027',
         )
 
     instance = Sample()
@@ -360,7 +363,8 @@ def test_deprecated_property_descriptor_nested():
     assert instance.subsample.value == 0
 
     with pytest.warns(
-        FutureWarning, match='Sample.old_property is deprecated since 0.1.0'
+        FutureWarning,
+        match='Sample.old_property is deprecated since 0.1.0. Removal is scheduled for fall 2027. Please use subsample.value instead.',
     ):
         assert instance.old_property == 0
 
@@ -382,7 +386,7 @@ def test_deprecated_property_descriptor_no_writing():
             return self._value
 
         old_property = DeprecatedProperty(
-            'new_property', '0.1.0', writable=False
+            new_name='new_property', since_version='0.1.0', writable=False
         )
 
     instance = Sample()

@@ -17,6 +17,7 @@ class DeprecatedProperty(property):
 
     def __init__(
         self,
+        *,
         new_name: str,
         since_version: str,
         due_date: str | None = None,
@@ -197,7 +198,9 @@ def add_deprecated_property(
         if not hasattr(obj, new_name):
             raise RuntimeError(f'{new_name} property must exist.')
 
-        prop = DeprecatedProperty(new_name, since_version, due_date=due_date)
+        prop = DeprecatedProperty(
+            new_name=new_name, since_version=since_version, due_date=due_date
+        )
         setattr(obj, previous_name, prop)
         prop.__set_name__(obj, previous_name)
         return obj
