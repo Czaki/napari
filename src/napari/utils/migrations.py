@@ -75,7 +75,6 @@ class RenamedProperty(property):
         self._since_version = since_version
         self._due_date = due_date
         self._category = category
-        self._writable = writable
         self._owner_name: str | None = None
         self._name: str | None = None
         self._parent_path = tuple(parts[:-1])
@@ -86,7 +85,11 @@ class RenamedProperty(property):
                 f'\n\n.. deprecated:: {since_version}\n'
                 f'    Use `{new_name}` instead.\n'
             )
-        super().__init__(doc=doc)
+        super().__init__(
+            fget=self._get_value,
+            fset=self._set_value if writable else None,
+            doc=doc,
+        )
 
     def __set_name__(self, owner: type, name: str) -> None:
         """Record the owning class and alias name for warning messages."""
@@ -152,19 +155,13 @@ class RenamedProperty(property):
             f'{schedule} Please use {new_name} instead.'
         )
 
-    def __get__(self, instance, owner=None):
-        """Warn and read the target, or return this descriptor for class access."""
-        if instance is None:
-            return self
-
+    def _get_value(self, instance):
+        """Warn and read the target attribute."""
         warnings.warn(self.message, self._category, stacklevel=2)
         return getattr(self._resolve_parent(instance), self._target_name)
 
-    def __set__(self, instance, value):
-        """Warn and assign to the target, raising AttributeError if read-only."""
-        if not self._writable:
-            raise AttributeError(f'{self._name} has no setter')
-
+    def _set_value(self, instance, value):
+        """Warn and assign to the target attribute."""
         warnings.warn(self.message, self._category, stacklevel=2)
         setattr(self._resolve_parent(instance), self._target_name, value)
 

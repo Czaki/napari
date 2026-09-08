@@ -343,6 +343,30 @@ def test_deprecated_property_descriptor():
     assert instance.new_property == 2
 
 
+@pytest.mark.parametrize('writable', [False, True])
+def test_renamed_property_accessors(writable):
+    class Sample:
+        value = 1
+        old = RenamedProperty(
+            new_name='value', since_version='0.1.0', writable=writable
+        )
+
+    prop = Sample.old
+    assert prop.fget is not None
+    assert (prop.fset is not None) == writable
+    instance = Sample()
+    with pytest.warns(
+        FutureWarning, match='Sample.old is deprecated'
+    ) as recorded:
+        assert prop.fget(instance) == 1
+    assert recorded[0].filename == __file__
+
+    if writable:
+        with pytest.warns(FutureWarning, match='Sample.old is deprecated'):
+            prop.fset(instance, 2)
+        assert instance.value == 2
+
+
 def test_deprecated_property_descriptor_nested():
     class SubSample:
         def __init__(self):

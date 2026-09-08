@@ -288,11 +288,7 @@ class EventedModel(BaseModel, metaclass=EventedMetaclass):
         # so we first check to see if this field is a property
         # if so, we use it instead.
         if name in self.__properties__:
-            prop = self.__properties__[name]
-            if isinstance(prop, RenamedProperty):
-                setter = prop.__set__
-            else:
-                setter = prop.fset
+            setter = self.__properties__[name].fset
             if setter is None:
                 # raise same error as normal properties
                 raise AttributeError(f"can't set attribute '{name}'")
