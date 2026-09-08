@@ -947,6 +947,29 @@ def test_renamed_property():
     mock.assert_called_once()
 
 
+def test_renamed_property_assignment_emits_once():
+    """Assigning through an alias should only emit the forwarded target event."""
+
+    class Model(EventedModel):
+        value: int = 1
+        old_value = RenamedProperty(new_name='value', since_version='0.1.0')
+
+    model = Model()
+    alias_callback = Mock()
+    target_callback = Mock()
+    with pytest.warns(FutureWarning, match='events.old_value is deprecated'):
+        model.events.old_value.connect(alias_callback)
+    model.events.value.connect(target_callback)
+
+    with pytest.warns(FutureWarning, match='Model.old_value is deprecated'):
+        model.old_value = 2
+
+    assert model.value == 2
+    target_callback.assert_called_once()
+    alias_callback.assert_called_once()
+    assert alias_callback.call_args.args[0].value == 2
+
+
 def test_renamed_property_nested():
 
     class Sub(EventedModel):
@@ -976,3 +999,81 @@ def test_renamed_property_nested():
     s.s.a = 3
 
     mock.assert_called_once()
+    mock2 = Mock()
+    s.s.events.a.connect(mock2)
+    with pytest.warns(
+        FutureWarning,
+        match='Base.a is deprecated since 0.1.0.*Please use .*s.a instead',
+    ):
+        s.a = 1
+
+    mock2.assert_called_once()
+
+    assert s.s.a == 1
+
+
+def test_renamed_property_in_parent_class_used_in_subclass():
+    class Base(EventedModel):
+        a: int = 1
+        b = RenamedProperty(
+            new_name='a',
+            since_version='0.1.0',
+            due_date='fall 2027',
+        )
+
+    with pytest.warns(FutureWarning, match='The property b is renamed to a'):
+
+        class Sub(Base):
+            @property
+            def c(self):
+                return self.b + 2
+
+            @c.setter
+            def c(self, value):
+                self.b = value - 2
+
+    s = Sub()
+    mock = Mock()
+    s.a = 2
+
+    s.events.c.connect(mock)
+
+    with pytest.warns(FutureWarning, match='Base.b is deprecated since 0.1.0'):
+        # warning is emitted during compression phase.
+        s.a = 3
+    mock.assert_called_once()
+
+
+@pytest.mark.xfail(reason='need to be fixed', strict=True)
+def test_renamed_nested_dependency_tracks_child_replacement():
+    class Child(EventedModel):
+        value: int = 1
+        value2: int = 2
+
+    with pytest.warns(
+        FutureWarning, match="Cannot fully track dependencies of 'doubled'"
+    ):
+
+        class Model(EventedModel):
+            child: Child = Field(default_factory=Child)
+            old_value = RenamedProperty(
+                new_name='child.value',
+                since_version='0.9.2',
+            )
+
+            @property
+            def doubled(self):
+                return self.old_value * 2
+
+    model = Model()
+    callback = Mock()
+    model.events.doubled.connect(callback)
+
+    # with pytest.warns(FutureWarning, match='Model.old_value is deprecated since 0.9.2'):
+    model.child.value = 3
+
+    callback.assert_called_once()
+    callback.reset_mock()
+
+    model.child.value2 = 3
+    callback.assert_called_once()

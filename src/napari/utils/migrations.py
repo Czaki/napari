@@ -104,6 +104,11 @@ class RenamedProperty(property):
         return self._category
 
     @property
+    def name(self) -> str:
+        """Alias name."""
+        return self._name
+
+    @property
     def message(self) -> str:
         """Deprecation warning text for access to the aliased attribute."""
         name = (
@@ -239,6 +244,48 @@ def rename_argument(
     return _wrapper
 
 
+def _add_deprecated_property(func):
+    """To be used as a decorator for add_deprecated_property to support legacy positional arguments."""
+
+    @wraps(func)
+    def _func(*args, **kwargs):
+        if args or 'obj' in kwargs:
+            if args:
+                warnings.warn(
+                    'Using positional arguments for add_deprecated_property is deprecated. '
+                    'Please use keyword arguments instead. '
+                    'positional arguments will be removed in a spring 2027',
+                    category=FutureWarning,
+                    stacklevel=2,
+                )
+            else:
+                warnings.warn(
+                    "Using 'obj' keyword argument for add_deprecated_property is deprecated. "
+                    'Please use add_deprecated_property(...)(obj) instead. ',
+                    category=FutureWarning,
+                    stacklevel=2,
+                )
+            if 'obj' in kwargs:
+                obj = kwargs.pop('obj')
+            else:
+                obj = args[0]
+                args = args[1:]
+
+            legacy_names = (
+                'previous_name',
+                'new_name',
+                'version',
+                'since_version',
+            )
+            for name, value in zip(legacy_names, args, strict=False):
+                kwargs[name] = value
+            return func(**kwargs)(obj)
+        return func(**kwargs)
+
+    return _func
+
+
+@_add_deprecated_property
 def add_deprecated_property(
     *,
     previous_name: str,
@@ -273,7 +320,7 @@ def add_deprecated_property(
             "and ignored. Use 'due_date' to specify a removal date, or omit "
             'it for no announced removal date.',
             FutureWarning,
-            stacklevel=2,
+            stacklevel=3,
         )
 
     def _func(obj: type) -> type:

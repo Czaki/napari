@@ -109,7 +109,38 @@ def _update_dependents_from_property_code(
     Update the given deps dictionary with the new findings.
     """
     if isinstance(prop, RenamedProperty):
+        if cls.__properties__.get(prop_name) is prop:
+            return
+        warnings.warn(
+            f'The property {prop.name} is renamed to {prop.new_name}. Please use the new name in the dependant properties.',
+            FutureWarning,
+        )
+        target = prop.new_name
+        if '.' in target:
+            root = target.split('.', 1)[0]
+            if root in cls.model_fields:
+                deps.setdefault(root, set()).add(prop_name)
+
+            warnings.warn(
+                f'Cannot fully track dependencies of {prop_name!r}: '
+                f'renamed property {prop.name!r} targets {target!r}. '
+                'Replacing the containing field is tracked, but changes '
+                'inside that field are not.',
+                FutureWarning,
+            )
+            return
+        if target in cls.model_fields:
+            deps.setdefault(target, set()).add(prop_name)
+        elif target in cls.__properties__ and target not in visited:
+            _update_dependents_from_property_code(
+                cls,
+                prop_name,
+                cls.__properties__[target],
+                deps,
+                visited + (target,),
+            )
         return
+
     for name in prop.fget.__code__.co_names:
         if name in cls.model_fields:
             deps.setdefault(name, set()).add(prop_name)
@@ -257,7 +288,11 @@ class EventedModel(BaseModel, metaclass=EventedMetaclass):
         # so we first check to see if this field is a property
         # if so, we use it instead.
         if name in self.__properties__:
-            setter = self.__properties__[name].fset
+            prop = self.__properties__[name]
+            if isinstance(prop, RenamedProperty):
+                setter = prop.__set__
+            else:
+                setter = prop.fset
             if setter is None:
                 # raise same error as normal properties
                 raise AttributeError(f"can't set attribute '{name}'")
@@ -341,6 +376,12 @@ class EventedModel(BaseModel, metaclass=EventedMetaclass):
     def _setattr_impl(self, name: str, value: Any) -> None:
         if name not in getattr(self, 'events', {}):
             # fallback to default behavior
+            self._super_setattr_(name, value)
+            return
+        if isinstance(self.__properties__.get(name), RenamedProperty):
+            # if the property is renamed, we dont want to make comparisons with the old value,
+            # as the RenamedProperty will call __setattr__ with the new name, which will trigger
+            # a comparison with the old value of the new name, which is not what we want.
             self._super_setattr_(name, value)
             return
 
