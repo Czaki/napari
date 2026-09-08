@@ -863,6 +863,10 @@ class RenamedEmitter(WarningEmitter):
     Warning emitter to be used when an attribute was renamed or moved to a composition object.
     It will connect to the new event once the callback is connected to the old one.
     It will also warn the user that the attribute was renamed.
+
+    Intermediate attributes in the target path may be replaced, but must
+    always resolve to objects while listeners are connected. Assigning None
+    to an intermediate attribute is not supported.
     """
 
     def __init__(
@@ -873,34 +877,115 @@ class RenamedEmitter(WarningEmitter):
     ) -> None:
         super().__init__(*args, **kwargs)
         *self._new_name_path, self._new_name = new_name.split('.')
-        self._connected = False
+        self._target_emitter: Callable[[], EventEmitter | None] | None = None
+        # Entries correspond to path components; None means no replacement event.
+        self._replacement_emitters: list[
+            Callable[[], EventEmitter | None] | None
+        ] = []
 
-    def _get_new_emitter(self):
+    def _disconnect_from(self, index: int) -> None:
+        """Disconnect the target and replacement events from a path index onward."""
+        if self._target_emitter is not None:
+            if (emitter := self._target_emitter()) is not None:
+                emitter.disconnect(self)
+            self._target_emitter = None
+        for reference in self._replacement_emitters[index:]:
+            if reference is not None and (emitter := reference()) is not None:
+                emitter.disconnect(self._on_parent_replaced)
+        del self._replacement_emitters[index:]
+
+    def _on_parent_replaced(self) -> None:
+        """Reconnect and notify listeners without comparing or caching values.
+
+        Include the current value when readable. Event-only targets emit an
+        event without a value payload.
+        """
+        self._reconnect_emitter()
         target = self.source
-        if self.source is None:  # pragma: no cover
+        for attr in self._new_name_path:
+            target = getattr(target, attr)
+        value = getattr(target, self._new_name)
+        self(value=value)
+
+    def _reconnect_emitter(self) -> None:
+        """Preserve matching path connections and rebuild changed downstream ones.
+
+        Replacement events are used whenever available, including for model
+        fields. Without an event, only read-only properties are assumed stable.
+        """
+        target = self.source
+        if target is None:
             raise RuntimeError(
                 f'Cannot connect to renamed emitter {self._new_name} because source is None'
             )
-        for attr in self._new_name_path:
+        for index, (attr, emitter_reference) in enumerate(
+            zip(self._new_name_path, self._replacement_emitters, strict=False)
+        ):
+            # check if any object on path has been replaced or removed, and disconnect the suffix if so.
+            emitter: EventEmitter | None = getattr(
+                getattr(target, 'events', None), attr, None
+            )
+            if emitter is None and emitter_reference is None:
+                target = getattr(target, attr)
+                continue
+            if emitter_reference is None or emitter is None:
+                # A new event has appeared; disconnect the suffix once.
+                self._disconnect_from(index)
+                break
+            if emitter is not emitter_reference():
+                # A event was replaced; disconnect the suffix once.
+                self._disconnect_from(index)
+                break
             target = getattr(target, attr)
-        new_emitter = getattr(target.events, self._new_name)
-        return new_emitter
 
-    def connect(self, cb, *args, **kwargs):
-        if not self._connected:
-            new_emitter = self._get_new_emitter()
-            new_emitter.connect(self)
-            self._connected = True
+        index = len(self._replacement_emitters)
+
+        for attr in self._new_name_path[index:]:
+            # Try to rebuild the path to the renamed event, connecting to any replacement events along the way.
+            emitter = getattr(getattr(target, 'events', None), attr, None)
+            if emitter is None:
+                descriptor = inspect.getattr_static(type(target), attr, None)
+                if not (
+                    isinstance(descriptor, property)
+                    and descriptor.fset is None
+                ):
+                    warnings.warn(
+                        f'Cannot automatically reconnect renamed emitter '
+                        f'{self._new_name}: {type(target).__name__}.{attr} '
+                        f'has no replacement event. Call _reconnect_emitter() '
+                        f'after replacing it.',
+                        UserWarning,
+                        stacklevel=3,
+                    )
+            if emitter is not None:
+                emitter.connect(self._on_parent_replaced)
+                self._replacement_emitters.append(weakref.ref(emitter))
+            else:
+                self._replacement_emitters.append(None)
+            target = getattr(target, attr)
+
+        new_emitter: EventEmitter = getattr(target.events, self._new_name)
+        if (
+            self._target_emitter is not None
+            and (target_emitter := self._target_emitter()) is not None
+        ):
+            if target_emitter is new_emitter:
+                return
+            target_emitter.disconnect(self)
+        new_emitter.connect(self)
+        self._target_emitter = weakref.ref(new_emitter)
+
+    def connect(self, cb, *args, **kwargs) -> None:
+        if self._target_emitter is None:
+            self._reconnect_emitter()
         super().connect(cb, *args, **kwargs)
 
     def disconnect(
         self, callback: Callback | CallbackRef | object | None = None
-    ):
+    ) -> None:
         super().disconnect(callback)
         if not self.callbacks:
-            new_emitter = self._get_new_emitter()
-            new_emitter.disconnect(self)
-            self._connected = False
+            self._disconnect_from(0)
 
 
 class EmitterGroup(EventEmitter):
