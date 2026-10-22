@@ -58,6 +58,17 @@ def _mock_pooch(monkeypatch):
     monkeypatch.setattr(core, 'choose_downloader', napari_choose_downloader)
 
 
+@pytest.fixture(autouse=True, scope='module')
+def prefetch_data():
+    # import the _prefetch_data.py from EXMPLE_DIR to prefetch data for examples.
+    # calll the prefetch_data() function to download the data files.
+    prefetch_data_path = EXAMPLE_DIR / '_prefetch_data.py'
+    if prefetch_data_path.exists():
+        prefetch_data_module = runpy.run_path(prefetch_data_path)
+        if 'prefetch_data' in prefetch_data_module:
+            prefetch_data_module['prefetch_data']()
+
+
 @pytest.fixture
 def _example_monkeypatch(monkeypatch):
     # hide viewer window
