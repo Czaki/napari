@@ -892,6 +892,41 @@ def test_create_non_empty_viewer_model_initializes_world_units(
 _DEBUG_DIR = Path.cwd() / '.pytest_tmp' / 'debug_screens'
 _debug_misses: dict[str, list] = {}
 
+# Garbage collection and per-label log of the running label color test.
+_debug_state: dict = {'test': None, 't0': 0.0, 'idx': None, 'step': None}
+_debug_gc_events: list[list] = []
+_debug_gc_counts: dict[int, int] = {}
+_debug_labels: list[list] = []
+_debug_gc_start = [0.0]
+
+
+def _debug_gc_callback(phase: str, info: dict) -> None:
+    """Record garbage collections that run during a label color test."""
+    if _debug_state['test'] is None:
+        return
+    if phase == 'start':
+        _debug_gc_start[0] = time.perf_counter()
+        return
+    gen = info.get('generation')
+    collected = info.get('collected')
+    idx = _debug_state['idx']
+    _debug_gc_counts[idx] = _debug_gc_counts.get(idx, 0) + 1
+    if (gen or collected > 50) and len(_debug_gc_events) < 500:
+        # [time since test start, generation, collected, ms, label index, step]
+        _debug_gc_events.append(
+            [
+                round(time.time() - _debug_state['t0'], 3),
+                gen,
+                collected,
+                round((time.perf_counter() - _debug_gc_start[0]) * 1000, 1),
+                idx,
+                _debug_state['step'],
+            ]
+        )
+
+
+gc.callbacks.append(_debug_gc_callback)
+
 # List the on-screen windows of all processes, front to back.
 _JXA_WINDOWS = """
 ObjC.import('CoreGraphics');
@@ -980,14 +1015,44 @@ def _debug_write(record: dict) -> None:
 
 
 @pytest.fixture
-def _debug_colorbox():
-    """Turn on Qt window logging and fail if any repaint needed waiting."""
+def _debug_colorbox(request: pytest.FixtureRequest, qtlog):
+    """Turn on Qt window logging and fail if any repaint needed waiting.
+
+    Also print a GCLOG line with the garbage collections, the per-label state
+    and the occlusion changes during the test, whether it missed or not.
+    """
     from qtpy.QtCore import QLoggingCategory
 
+    test = _debug_test_name()
+    _debug_gc_events.clear()
+    _debug_gc_counts.clear()
+    _debug_labels.clear()
+    _debug_state.update(test=test, t0=time.time(), idx=None, step='setup')
     QLoggingCategory.setFilterRules('qt.qpa.window.debug=true')
     yield
     QLoggingCategory.setFilterRules('qt.qpa.window.debug=false')
-    misses = _debug_misses.pop(_debug_test_name(), [])
+    t0 = _debug_state['t0']
+    _debug_state.update(test=None, idx=None, step=None)
+    misses = _debug_misses.pop(test, [])
+    summary = {
+        'test': test,
+        'gc_teardown': bool(os.environ.get('NAPARI_DEBUG_GC_TEARDOWN')),
+        'gc_threshold': gc.get_threshold(),
+        'misses': [m['label'] for m in misses],
+        # [index, time since start, controls exposed, windows, painted at once]
+        'labels': _debug_labels,
+        'gc_counts': _debug_gc_counts,
+        # [time since start, generation, collected, ms, label index, step]
+        'gc': _debug_gc_events,
+        'occlusion': [
+            [round(r.when.timestamp() - t0, 3), r.message[:300]]
+            for r in qtlog.records
+            if 'cclusion' in r.message
+        ],
+    }
+    capman = request.config.pluginmanager.getplugin('capturemanager')
+    with capman.global_and_fixture_disabled():
+        print('GCLOG', json.dumps(summary), flush=True)  # noqa: T201
     assert not misses, json.dumps(misses, indent=1)
 
 
@@ -1007,6 +1072,19 @@ def _update_data(
     ``colorbox_painted_colors`` comes from the fixture of the same name and is
     updated on each QtColorBox paintEvent.
     """
+    from qtpy.QtGui import QGuiApplication
+
+    handle = qt_viewer.controls.windowHandle()
+    entry = [
+        len(_debug_labels),
+        round(time.time() - _debug_state['t0'], 3),
+        int(handle.isExposed()) if handle is not None else -1,
+        len(QGuiApplication.allWindows()),
+        -1,
+    ]
+    _debug_labels.append(entry)
+    _debug_state.update(idx=entry[0], step='set')
+
     label_changed = label != layer.selected_label
     n_painted = len(colorbox_painted_colors)
     layer.data = np.full((2, 2), label, dtype=dtype)
@@ -1014,7 +1092,11 @@ def _update_data(
 
     # QtColorBox only requests a repaint with update(). Run the event loop so
     # that colorbox_painted_colors holds the color which it really painted.
+    _debug_state['step'] = 'process'
     QApplication.processEvents()
+    if label_changed:
+        entry[4] = int(len(colorbox_painted_colors) > n_painted)
+    _debug_state['step'] = 'wait'
     miss = None
     if label_changed and len(colorbox_painted_colors) == n_painted:
         miss = _debug_miss_start(qt_viewer, label)
@@ -1030,7 +1112,9 @@ def _update_data(
         _debug_write(miss)
 
     color_box_color = colorbox_painted_colors[-1]
+    _debug_state['step'] = 'shot'
     screenshot = qt_viewer.screenshot(flash=False, size=[400, 400])
+    _debug_state['step'] = 'between'
     shape = np.array(screenshot.shape[:2])
     middle_pixel = screenshot[tuple(shape // 2)]
 

@@ -397,7 +397,7 @@ def viewer_model() -> ViewerModel:
 @pytest.fixture
 def qt_viewer_(
     qtbot: QtBot, viewer_model: ViewerModel, monkeypatch: pytest.MonkeyPatch
-) -> QtViewer:
+) -> Generator[QtViewer, None, None]:
     from napari._qt.qt_viewer import QtViewer
 
     viewer = QtViewer(viewer_model)
@@ -496,7 +496,11 @@ def qt_viewer_(
     )
 
     qtbot.addWidget(viewer, before_close_func=hide_and_clear_qt_viewer)
-    return viewer
+    yield viewer
+    # Temporary, debug branch only: collect the garbage left by this test at
+    # teardown, like make_napari_viewer does, instead of during a later test.
+    if os.environ.get('NAPARI_DEBUG_GC_TEARDOWN'):
+        gc.collect()
 
 
 @pytest.fixture

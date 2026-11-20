@@ -13,14 +13,16 @@ permissions:
 
 jobs:
   test:
-    name: ${{ matrix.platform }} ${{ matrix.attempt }}
+    name: ${{ matrix.platform }} ${{ matrix.variant }}
     runs-on: ${{ matrix.platform }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         platform: [macos-15, macos-15-intel]
-        attempt: [1, 2]
+        # log: only log garbage collections; gc-teardown: also run
+        # gc.collect() at the teardown of each qt_viewer fixture
+        variant: [log, gc-teardown]
     env:
       NUMPY_EXPERIMENTAL_ARRAY_FUNCTION: 1
       PYVISTA_OFF_SCREEN: True
@@ -29,6 +31,7 @@ jobs:
       TOX_WORK_DIR: .tox
       XDG_CACHE_HOME: ${{ github.workspace }}/.cache
       BACKEND: ${{ matrix.platform == 'macos-15-intel' && 'pyqt6_no_numba' || 'pyqt6' }}
+      NAPARI_DEBUG_GC_TEARDOWN: ${{ matrix.variant == 'gc-teardown' && '1' || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -57,7 +60,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: debug ${{ matrix.platform }} ${{ matrix.attempt }}
+          name: debug ${{ matrix.platform }} ${{ matrix.variant }}
           path: |
             .pytest_tmp/debug_screens
             report-*.json
