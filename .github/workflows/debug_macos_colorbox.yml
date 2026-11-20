@@ -1,0 +1,67 @@
+# Temporary workflow to debug the macOS failure of
+# test_label_colors_matching_widget_auto on PR #9940. Not for merging.
+name: Debug macOS colorbox
+
+on:
+  push:
+    branches:
+      - debug/macos-colorbox
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.platform }} ${{ matrix.variant }}
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [macos-15, macos-15-intel]
+        # log: only log garbage collections; gc-teardown: also run
+        # gc.collect() at the teardown of each qt_viewer fixture
+        variant: [log, gc-teardown]
+    env:
+      NUMPY_EXPERIMENTAL_ARRAY_FUNCTION: 1
+      PYVISTA_OFF_SCREEN: True
+      FORCE_COLOR: 1
+      NAPARI_TEST_CONSTRAINTS: ${{ github.workspace }}/resources/constraints/constraints_py3.14.txt
+      TOX_WORK_DIR: .tox
+      XDG_CACHE_HOME: ${{ github.workspace }}/.cache
+      BACKEND: ${{ matrix.platform == 'macos-15-intel' && 'pyqt6_no_numba' || 'pyqt6' }}
+      NAPARI_DEBUG_GC_TEARDOWN: ${{ matrix.variant == 'gc-teardown' && '1' || '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r resources/requirements_tox.txt
+        env:
+          PIP_CONSTRAINT: ""
+
+      - name: Test up to the end of the _qt sections
+        shell: bash
+        run: |
+          python -m tox run -e "py314-${BACKEND}" -- --basetemp=.pytest_tmp \
+            src/napari --ignore=src/napari/_tests --ignore=src/napari/qt
+
+      - name: Upload debug data
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: debug ${{ matrix.platform }} ${{ matrix.variant }}
+          path: |
+            .pytest_tmp/debug_screens
+            report-*.json
+          if-no-files-found: warn
