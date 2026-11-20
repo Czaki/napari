@@ -889,8 +889,20 @@ def test_create_non_empty_viewer_model_initializes_world_units(
 
 
 # --- macOS colorbox debugging (temporary, debug branch only) ---------------
-_DEBUG_DIR = Path.cwd() / 'debug_screens'
-_debug_state: dict = {}
+_DEBUG_DIR = Path.cwd() / '.pytest_tmp' / 'debug_screens'
+_debug_misses: dict[str, list] = {}
+
+# List the on-screen windows of all processes, front to back.
+_JXA_WINDOWS = """
+ObjC.import('CoreGraphics');
+var ref = $.CGWindowListCopyWindowInfo(1 | 16, 0);
+var info = ObjC.deepUnwrap(ObjC.castRefToObject(ref));
+JSON.stringify(info.map(function (w) {
+    return {owner: w.kCGWindowOwnerName, pid: w.kCGWindowOwnerPID,
+            name: w.kCGWindowName || null, layer: w.kCGWindowLayer,
+            bounds: w.kCGWindowBounds, alpha: w.kCGWindowAlpha};
+}));
+"""
 
 
 def _debug_window(widget) -> dict:
@@ -898,8 +910,6 @@ def _debug_window(widget) -> dict:
 
     handle = widget.windowHandle()
     return {
-        'cls': type(widget).__name__,
-        'visible': widget.isVisible(),
         'mapped': widget.testAttribute(Qt.WidgetAttribute.WA_Mapped),
         'exposed': handle.isExposed() if handle is not None else None,
         'active': widget.isActiveWindow(),
@@ -907,30 +917,29 @@ def _debug_window(widget) -> dict:
     }
 
 
-def _debug_top_level_windows() -> list:
-    from qtpy.QtGui import QGuiApplication
-
-    return [
-        {
-            'cls': type(w).__name__,
-            'name': w.objectName(),
-            'title': w.title(),
-            'visible': w.isVisible(),
-            'exposed': w.isExposed(),
-            'frame': list(w.frameGeometry().getRect()),
-            'flags': int(w.flags().value)
-            if hasattr(w.flags(), 'value')
-            else int(w.flags()),
-        }
-        for w in QGuiApplication.topLevelWindows()
-        if w.isVisible()
-    ]
+def _debug_on_screen_windows() -> object:
+    if sys.platform != 'darwin':
+        return None
+    try:
+        res = subprocess.run(
+            ['osascript', '-l', 'JavaScript', '-e', _JXA_WINDOWS],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except Exception as e:  # noqa: BLE001
+        return f'osascript failed: {e!r}'
+    try:
+        return json.loads(res.stdout)
+    except ValueError:
+        return f'osascript rc={res.returncode} out={res.stdout[:500]!r} err={res.stderr[:500]!r}'
 
 
 def _debug_screencapture(name: str) -> None:
     if sys.platform != 'darwin':
         return
-    _DEBUG_DIR.mkdir(exist_ok=True)
+    _DEBUG_DIR.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         ['screencapture', '-x', str(_DEBUG_DIR / f'{name}.png')],
         check=False,
@@ -938,48 +947,48 @@ def _debug_screencapture(name: str) -> None:
     )
 
 
-def _debug_record(qt_viewer: QtViewer, label, painted: bool) -> None:
+def _debug_test_name() -> str:
+    test = os.environ.get('PYTEST_CURRENT_TEST', '?').split(' ')[0]
+    return test.split('::')[-1]
+
+
+def _debug_miss_start(qt_viewer: QtViewer, label) -> dict:
+    """Record the state when a processEvents call did not repaint the box."""
     from qtpy.QtGui import QGuiApplication
 
-    test = os.environ.get('PYTEST_CURRENT_TEST', '?').split(' ')[0]
-    test = test.split('::')[-1]
-    step = _debug_state.get(test, 0)
-    _debug_state[test] = step + 1
-    active = QApplication.activeWindow()
-    focus = QGuiApplication.focusWindow()
+    test = _debug_test_name()
     record = {
-        'time': time.time(),
         'test': test,
-        'step': step,
         'label': int(label),
-        'painted': painted,
+        'time': time.time(),
         'app_state': str(QGuiApplication.applicationState()),
-        'active_window': type(active).__name__ if active else None,
-        'focus_window': type(focus).__name__ if focus else None,
         'controls': _debug_window(qt_viewer.controls),
         'viewer': _debug_window(qt_viewer),
+        'on_screen_windows': _debug_on_screen_windows(),
     }
-    first_miss = not painted and not _debug_state.get(f'{test}-missed')
-    if first_miss or step == 6:
-        record['windows'] = _debug_top_level_windows()
+    misses = _debug_misses.setdefault(test, [])
+    _debug_screencapture(f'{test}-miss{len(misses)}-label{int(label)}')
+    misses.append(record)
+    return record
+
+
+def _debug_write(record: dict) -> None:
     print('COLORBOX', json.dumps(record), flush=True)  # noqa: T201
-    _DEBUG_DIR.mkdir(exist_ok=True)
+    _DEBUG_DIR.mkdir(parents=True, exist_ok=True)
     with (_DEBUG_DIR / 'colorbox.jsonl').open('a') as f:
         f.write(json.dumps(record) + '\n')
-    if first_miss:
-        _debug_state[f'{test}-missed'] = True
-        _debug_screencapture(f'{test}-miss-step{step}')
-    elif step == 6:
-        _debug_screencapture(f'{test}-step{step}')
 
 
 @pytest.fixture
-def _debug_qpa_window_log():
+def _debug_colorbox():
+    """Turn on Qt window logging and fail if any repaint needed waiting."""
     from qtpy.QtCore import QLoggingCategory
 
     QLoggingCategory.setFilterRules('qt.qpa.window.debug=true')
     yield
     QLoggingCategory.setFilterRules('qt.qpa.window.debug=false')
+    misses = _debug_misses.pop(_debug_test_name(), [])
+    assert not misses, json.dumps(misses, indent=1)
 
 
 # ---------------------------------------------------------------------------
@@ -988,6 +997,7 @@ def _debug_qpa_window_log():
 def _update_data(
     layer: Labels,
     label: int,
+    qtbot: QtBot,
     qt_viewer: QtViewer,
     colorbox_painted_colors: list[tuple[int, ...]],
     dtype: np.dtype = np.uint64,
@@ -997,6 +1007,7 @@ def _update_data(
     ``colorbox_painted_colors`` comes from the fixture of the same name and is
     updated on each QtColorBox paintEvent.
     """
+    label_changed = label != layer.selected_label
     n_painted = len(colorbox_painted_colors)
     layer.data = np.full((2, 2), label, dtype=dtype)
     layer.selected_label = label
@@ -1004,8 +1015,20 @@ def _update_data(
     # QtColorBox only requests a repaint with update(). Run the event loop so
     # that colorbox_painted_colors holds the color which it really painted.
     QApplication.processEvents()
+    miss = None
+    if label_changed and len(colorbox_painted_colors) == n_painted:
+        miss = _debug_miss_start(qt_viewer, label)
+        start = time.monotonic()
+    if label_changed:
+        # On macOS, Qt does not paint a window while another window covers
+        # it, and on CI other windows sometimes cover it for a moment.
+        qtbot.waitUntil(lambda: len(colorbox_painted_colors) > n_painted)
+    if miss is not None:
+        miss['waited_s'] = round(time.monotonic() - start, 3)
+        miss['controls_after'] = _debug_window(qt_viewer.controls)
+        miss['painted_color'] = colorbox_painted_colors[-1]
+        _debug_write(miss)
 
-    _debug_record(qt_viewer, label, len(colorbox_painted_colors) > n_painted)
     color_box_color = colorbox_painted_colors[-1]
     screenshot = qt_viewer.screenshot(flash=False, size=[400, 400])
     shape = np.array(screenshot.shape[:2])
@@ -1029,8 +1052,9 @@ def qt_viewer_with_controls(qtbot: QtBot, qt_viewer: QtViewer) -> QtViewer:
 )
 @pytest.mark.parametrize('dtype', [np.int8, np.int16, np.int64])
 @pytest.mark.show_qt_viewer
-@pytest.mark.usefixtures('_debug_qpa_window_log')
+@pytest.mark.usefixtures('_debug_colorbox')
 def test_label_colors_matching_widget_auto(
+    qtbot: QtBot,
     qt_viewer_with_controls: QtViewer,
     colorbox_painted_colors: list[tuple[int, ...]],
     use_selection: bool,
@@ -1038,7 +1062,6 @@ def test_label_colors_matching_widget_auto(
 ) -> None:
     """Make sure the rendered label colors match the QtColorBox widget."""
 
-    mismatches = []
     rng = np.random.default_rng(0)
     data = np.ones((2, 2), dtype=dtype)
     layer = qt_viewer_with_controls.viewer.add_labels(data)
@@ -1062,17 +1085,16 @@ def test_label_colors_matching_widget_auto(
         color_box_color, middle_pixel = _update_data(
             layer,
             label,
+            qtbot,
             qt_viewer_with_controls,
             colorbox_painted_colors,
             dtype,
         )
 
-        if not np.allclose(color_box_color, middle_pixel, atol=1):
-            mismatches.append(
-                (int(label), color_box_color, middle_pixel.tolist())
-            )
+        npt.assert_allclose(
+            color_box_color, middle_pixel, atol=1, err_msg=f'label {label}'
+        )
         # there is a difference of rounding between the QtColorBox and the screenshot
-    assert not mismatches, mismatches
 
 
 @skip_local_popups
@@ -1082,7 +1104,9 @@ def test_label_colors_matching_widget_auto(
 )
 @pytest.mark.parametrize('dtype', [np.uint64, np.uint16, np.uint8, np.int16])
 @pytest.mark.show_qt_viewer
+@pytest.mark.usefixtures('_debug_colorbox')
 def test_label_colors_matching_widget_direct(
+    qtbot: QtBot,
     qt_viewer_with_controls: QtViewer,
     colorbox_painted_colors: list[tuple[int, ...]],
     use_selection: bool,
@@ -1112,7 +1136,12 @@ def test_label_colors_matching_widget_direct(
     layer.show_selected_label = use_selection
 
     color_box_color, middle_pixel = _update_data(
-        layer, 0, qt_viewer_with_controls, colorbox_painted_colors, dtype
+        layer,
+        0,
+        qtbot,
+        qt_viewer_with_controls,
+        colorbox_painted_colors,
+        dtype,
     )
     assert np.allclose([0, 0, 0, 255], middle_pixel)
 
@@ -1121,6 +1150,7 @@ def test_label_colors_matching_widget_direct(
         color_box_color, middle_pixel = _update_data(
             layer,
             label,
+            qtbot,
             qt_viewer_with_controls,
             colorbox_painted_colors,
             dtype,

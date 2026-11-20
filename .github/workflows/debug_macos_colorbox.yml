@@ -11,69 +11,16 @@ on:
 permissions:
   contents: read
 
-env:
-  # Tests of the PR are compared with this upstream main commit.
-  BASE_SHA: b6811a1d8
-
 jobs:
   test:
-    name: ${{ matrix.variant }}
-    runs-on: macos-15
-    timeout-minutes: 50
+    name: ${{ matrix.platform }} ${{ matrix.attempt }}
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - variant: pr
-            revert: ""
-          - variant: base
-            revert: >-
-              src/napari/_qt/_qapp_model/_tests/test_file_menu.py
-              src/napari/_qt/_qapp_model/_tests/test_plugins_menu.py
-              src/napari/_qt/_qapp_model/_tests/test_qapp_model_menus.py
-              src/napari/_qt/_qapp_model/_tests/test_view_menu.py
-              src/napari/_qt/_qapp_model/_tests/utils.py
-              src/napari/_qt/_tests/test_async_slicing.py
-              src/napari/_qt/_tests/test_open_file.py
-              src/napari/_qt/_tests/test_qt_viewer_2.py
-              src/napari/_qt/_tests/test_viewer_qt_integration.py
-              src/napari/_qt/dialogs/_tests/test_reader_dialog.py
-              src/napari/_tests/test_adding_removing.py
-              src/napari/_tests/test_advanced.py
-              src/napari/_tests/test_key_bindings.py
-              src/napari/_tests/test_mouse_bindings.py
-              src/napari/_tests/test_viewer.py
-              src/napari/_tests/utils.py
-              src/napari/_vispy/_tests/test_image_rendering.py
-              src/napari/_vispy/_tests/test_utils.py
-              src/napari/_vispy/_tests/test_vispy_big_images.py
-              src/napari/_vispy/_tests/test_vispy_bounding_box_visual.py
-              src/napari/_vispy/_tests/test_vispy_calls.py
-              src/napari/_vispy/_tests/test_vispy_camera.py
-              src/napari/_vispy/_tests/test_vispy_multiscale.py
-              src/napari/_vispy/_tests/test_vispy_vectors_layer.py
-          - variant: revert-vispy
-            revert: >-
-              src/napari/_vispy/_tests/test_image_rendering.py
-              src/napari/_vispy/_tests/test_utils.py
-              src/napari/_vispy/_tests/test_vispy_big_images.py
-              src/napari/_vispy/_tests/test_vispy_bounding_box_visual.py
-              src/napari/_vispy/_tests/test_vispy_calls.py
-              src/napari/_vispy/_tests/test_vispy_camera.py
-              src/napari/_vispy/_tests/test_vispy_multiscale.py
-              src/napari/_vispy/_tests/test_vispy_vectors_layer.py
-          - variant: revert-qapp
-            revert: >-
-              src/napari/_qt/_qapp_model/_tests/test_file_menu.py
-              src/napari/_qt/_qapp_model/_tests/test_plugins_menu.py
-              src/napari/_qt/_qapp_model/_tests/test_qapp_model_menus.py
-              src/napari/_qt/_qapp_model/_tests/test_view_menu.py
-              src/napari/_qt/_qapp_model/_tests/utils.py
-          - variant: revert-qt-early
-            revert: >-
-              src/napari/_qt/_tests/test_async_slicing.py
-              src/napari/_qt/_tests/test_open_file.py
-              src/napari/_qt/dialogs/_tests/test_reader_dialog.py
+        platform: [macos-15, macos-15-intel]
+        attempt: [1, 2]
     env:
       NUMPY_EXPERIMENTAL_ARRAY_FUNCTION: 1
       PYVISTA_OFF_SCREEN: True
@@ -81,22 +28,12 @@ jobs:
       NAPARI_TEST_CONSTRAINTS: ${{ github.workspace }}/resources/constraints/constraints_py3.14.txt
       TOX_WORK_DIR: .tox
       XDG_CACHE_HOME: ${{ github.workspace }}/.cache
-      BACKEND: pyqt6
+      BACKEND: ${{ matrix.platform == 'macos-15-intel' && 'pyqt6_no_numba' || 'pyqt6' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
-
-      - name: Restore upstream versions of some PR test files
-        if: matrix.revert != ''
-        shell: bash
-        env:
-          REVERT: ${{ matrix.revert }}
-        run: |
-          # shellcheck disable=SC2086
-          git checkout "${BASE_SHA}" -- ${REVERT}
-          git status --short
 
       - name: Set up Python 3.14
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -113,15 +50,15 @@ jobs:
       - name: Test up to the end of the _qt sections
         shell: bash
         run: |
-          python -m tox run -e py314-pyqt6 -- --basetemp=.pytest_tmp \
+          python -m tox run -e "py314-${BACKEND}" -- --basetemp=.pytest_tmp \
             src/napari --ignore=src/napari/_tests --ignore=src/napari/qt
 
       - name: Upload debug data
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: debug ${{ matrix.variant }}
+          name: debug ${{ matrix.platform }} ${{ matrix.attempt }}
           path: |
-            debug_screens
+            .pytest_tmp/debug_screens
             report-*.json
           if-no-files-found: warn
