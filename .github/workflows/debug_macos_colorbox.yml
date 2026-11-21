@@ -7,6 +7,7 @@ on:
     branches:
       - debug/macos-colorbox
       - debug/macos-colorbox-pos
+      - debug/macos-colorbox-size
   workflow_dispatch:
 
 permissions:
@@ -21,9 +22,9 @@ jobs:
       fail-fast: false
       matrix:
         platform: [macos-15, macos-15-intel]
-        # shift-*: each label test opens its windows in its own screen
-        # corner (NAPARI_DEBUG_SHIFT_WINDOWS); default: Qt places them
-        variant: [shift-1, shift-2, default]
+        # log: log window frames; size: also give the controls window an
+        # explicit size before it is shown (NAPARI_DEBUG_SIZE_CONTROLS)
+        variant: [log, size]
     env:
       NUMPY_EXPERIMENTAL_ARRAY_FUNCTION: 1
       PYVISTA_OFF_SCREEN: True
@@ -33,7 +34,7 @@ jobs:
       XDG_CACHE_HOME: ${{ github.workspace }}/.cache
       BACKEND: ${{ matrix.platform == 'macos-15-intel' && 'pyqt6_no_numba' || 'pyqt6' }}
       NAPARI_DEBUG_GC_TEARDOWN: ${{ matrix.variant == 'gc-teardown' && '1' || '' }}
-      NAPARI_DEBUG_SHIFT_WINDOWS: ${{ startsWith(matrix.variant, 'shift') && '1' || '' }}
+      NAPARI_DEBUG_SIZE_CONTROLS: ${{ matrix.variant == 'size' && '1' || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -52,7 +53,7 @@ jobs:
         env:
           PIP_CONSTRAINT: ""
 
-      - name: Test up to the end of the _qt sections
+      - name: Test up to the end of the label color tests
         shell: bash
         run: |
           python -m tox run -e "py314-${BACKEND}" -- --basetemp=.pytest_tmp \
