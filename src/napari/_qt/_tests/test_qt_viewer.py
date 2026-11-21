@@ -3,6 +3,7 @@ from __future__ import annotations
 import gc
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -1027,15 +1028,48 @@ def _debug_colorbox(request: pytest.FixtureRequest, qtlog):
     _debug_gc_events.clear()
     _debug_gc_counts.clear()
     _debug_labels.clear()
-    _debug_state.update(test=test, t0=time.time(), idx=None, step='setup')
+    _debug_frames.clear()
+    _debug_state.update(
+        test=test,
+        t0=time.time(),
+        idx=None,
+        step='setup',
+        windows=None,
+        last_frames=None,
+    )
     QLoggingCategory.setFilterRules('qt.qpa.window.debug=true')
     yield
     QLoggingCategory.setFilterRules('qt.qpa.window.debug=false')
     t0 = _debug_state['t0']
     _debug_state.update(test=None, idx=None, step=None)
     misses = _debug_misses.pop(test, [])
+    windows = _debug_state['windows'] or {}
+    views = {
+        w['view']: name
+        for name, w in windows.items()
+        if name in ('viewer', 'controls')
+    }
+    occlusion = []
+    for r in qtlog.records:
+        if 'cclusion' not in r.message:
+            continue
+        view = re.search(r'QNSView: (0x[0-9a-f]+)', r.message)
+        state = re.search(r'changed to (\w+)', r.message)
+        occlusion.append(
+            [
+                round(r.when.timestamp() - t0, 3),
+                views.get(view.group(1), view.group(1)) if view else '?',
+                state.group(1) if state else r.message[-80:],
+            ]
+        )
     summary = {
         'test': test,
+        'size_controls': _DEBUG_SIZE_CONTROLS,
+        # state of both windows before and right after they are shown
+        'windows': windows,
+        # [label index, time, viewer frame + state, controls frame + state],
+        # only when it changed since the previous label
+        'frames': _debug_frames,
         'gc_teardown': bool(os.environ.get('NAPARI_DEBUG_GC_TEARDOWN')),
         'gc_threshold': gc.get_threshold(),
         'misses': [m['label'] for m in misses],
@@ -1044,15 +1078,14 @@ def _debug_colorbox(request: pytest.FixtureRequest, qtlog):
         'gc_counts': _debug_gc_counts,
         # [time since start, generation, collected, ms, label index, step]
         'gc': _debug_gc_events,
-        'occlusion': [
-            [round(r.when.timestamp() - t0, 3), r.message[:300]]
-            for r in qtlog.records
-            if 'cclusion' in r.message
-        ],
+        # [time since start, window name or NSView pointer, new state]
+        'occlusion': occlusion,
     }
     capman = request.config.pluginmanager.getplugin('capturemanager')
     with capman.global_and_fixture_disabled():
         print('GCLOG', json.dumps(summary), flush=True)  # noqa: T201
+    if test == 'test_label_colors_matching_widget_direct[int16-all]':
+        request.session.shouldstop = 'debug: the label color tests are done'
     assert not misses, json.dumps(misses, indent=1)
 
 
@@ -1084,6 +1117,10 @@ def _update_data(
     ]
     _debug_labels.append(entry)
     _debug_state.update(idx=entry[0], step='set')
+    frames = [_debug_frame(qt_viewer), _debug_frame(qt_viewer.controls)]
+    if frames != _debug_state['last_frames']:
+        _debug_frames.append([entry[0], entry[1], *frames])
+        _debug_state['last_frames'] = frames
 
     label_changed = label != layer.selected_label
     n_painted = len(colorbox_painted_colors)
@@ -1121,11 +1158,63 @@ def _update_data(
     return color_box_color, middle_pixel
 
 
+# Experiment: with NAPARI_DEBUG_SIZE_CONTROLS set, the controls window gets
+# an explicit size before it is shown.
+_DEBUG_SIZE_CONTROLS = bool(os.environ.get('NAPARI_DEBUG_SIZE_CONTROLS'))
+_debug_frames: list = []
+
+
+def _debug_window_state(widget) -> int:
+    state = widget.windowState()
+    return int(getattr(state, 'value', state))
+
+
+def _debug_frame(widget) -> list[int]:
+    """Frame [x, y, w, h] of a window plus its Qt window state."""
+    return [*widget.frameGeometry().getRect(), _debug_window_state(widget)]
+
+
+def _debug_window_details(widget, size_hint: bool = True) -> dict:
+    """Window state. size_hint=False skips sizeHint, which can lay it out."""
+    handle = widget.windowHandle()
+    screen = widget.screen()
+    hint = widget.sizeHint() if size_hint else None
+    return {
+        'frame': list(widget.frameGeometry().getRect()),
+        'geometry': list(widget.geometry().getRect()),
+        'size_hint': [hint.width(), hint.height()] if hint else None,
+        'state': _debug_window_state(widget),
+        'visible': widget.isVisible(),
+        'exposed': handle.isExposed() if handle is not None else None,
+        'screen': list(screen.geometry().getRect()) if screen else None,
+        'available': list(screen.availableGeometry().getRect())
+        if screen
+        else None,
+        'view': hex(int(widget.winId())) if handle is not None else None,
+    }
+
+
 @pytest.fixture
 def qt_viewer_with_controls(qtbot: QtBot, qt_viewer: QtViewer) -> QtViewer:
+    windows = {'viewer_before': _debug_window_details(qt_viewer, False)}
+    # the same steps as the qt_viewer fixture with the show_qt_viewer mark,
+    # which these tests drop so that the window state can be logged first
+    qt_viewer.show()
+    qt_viewer.resize(460, 460)
+    QApplication.processEvents()
+    qtbot.wait_exposed(qt_viewer)
+    # accessing controls creates them, after the viewer is shown as before
+    windows['controls_before'] = _debug_window_details(
+        qt_viewer.controls, False
+    )
+    if _DEBUG_SIZE_CONTROLS:
+        qt_viewer.controls.resize(200, 100)
     # QtColorBox is not painted until its window is exposed
     with qtbot.waitExposed(qt_viewer.controls):
         qt_viewer.controls.show()
+    windows['viewer'] = _debug_window_details(qt_viewer)
+    windows['controls'] = _debug_window_details(qt_viewer.controls)
+    _debug_state['windows'] = windows
     return qt_viewer
 
 
@@ -1135,7 +1224,6 @@ def qt_viewer_with_controls(qtbot: QtBot, qt_viewer: QtViewer) -> QtViewer:
     'use_selection', [True, False], ids=['selected', 'all']
 )
 @pytest.mark.parametrize('dtype', [np.int8, np.int16, np.int64])
-@pytest.mark.show_qt_viewer
 @pytest.mark.usefixtures('_debug_colorbox')
 def test_label_colors_matching_widget_auto(
     qtbot: QtBot,
@@ -1187,7 +1275,6 @@ def test_label_colors_matching_widget_auto(
     'use_selection', [True, False], ids=['selected', 'all']
 )
 @pytest.mark.parametrize('dtype', [np.uint64, np.uint16, np.uint8, np.int16])
-@pytest.mark.show_qt_viewer
 @pytest.mark.usefixtures('_debug_colorbox')
 def test_label_colors_matching_widget_direct(
     qtbot: QtBot,
