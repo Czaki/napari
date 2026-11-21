@@ -1084,7 +1084,15 @@ def _debug_colorbox(request: pytest.FixtureRequest, qtlog):
     capman = request.config.pluginmanager.getplugin('capturemanager')
     with capman.global_and_fixture_disabled():
         print('GCLOG', json.dumps(summary), flush=True)  # noqa: T201
-    if test == 'test_label_colors_matching_widget_direct[int16-all]':
+    # stop the session after the last label test, in whatever order they run
+    _debug_state['label_tests_done'] = (
+        _debug_state.get('label_tests_done', 0) + 1
+    )
+    n_label_tests = sum(
+        item.name.startswith('test_label_colors_matching_widget_')
+        for item in request.session.items
+    )
+    if _debug_state['label_tests_done'] == n_label_tests:
         request.session.shouldstop = 'debug: the label color tests are done'
     assert not misses, json.dumps(misses, indent=1)
 

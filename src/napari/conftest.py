@@ -691,6 +691,16 @@ def pytest_collection_modifyitems(
         )
         test_order[index].append(item)
     items[:] = list(chain(*test_order))
+    if os.environ.get('NAPARI_DEBUG_REVERSE_LABEL_TESTS'):
+        # temporary: run the label color tests in reverse order, in place
+        positions = [
+            i
+            for i, item in enumerate(items)
+            if item.name.startswith('test_label_colors_matching_widget_')
+        ]
+        reordered = [items[i] for i in reversed(positions)]
+        for i, item in zip(positions, reordered, strict=True):
+            items[i] = item
 
 
 @pytest.hookimpl(wrapper=True)
