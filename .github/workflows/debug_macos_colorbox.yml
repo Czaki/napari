@@ -6,6 +6,7 @@ on:
   push:
     branches:
       - debug/macos-colorbox
+      - debug/macos-colorbox-pos
   workflow_dispatch:
 
 permissions:
@@ -20,9 +21,9 @@ jobs:
       fail-fast: false
       matrix:
         platform: [macos-15, macos-15-intel]
-        # log: only log garbage collections; gc-teardown: also run
-        # gc.collect() at the teardown of each qt_viewer fixture
-        variant: [log, gc-teardown]
+        # shift-*: each label test opens its windows in its own screen
+        # corner (NAPARI_DEBUG_SHIFT_WINDOWS); default: Qt places them
+        variant: [shift-1, shift-2, default]
     env:
       NUMPY_EXPERIMENTAL_ARRAY_FUNCTION: 1
       PYVISTA_OFF_SCREEN: True
@@ -32,6 +33,7 @@ jobs:
       XDG_CACHE_HOME: ${{ github.workspace }}/.cache
       BACKEND: ${{ matrix.platform == 'macos-15-intel' && 'pyqt6_no_numba' || 'pyqt6' }}
       NAPARI_DEBUG_GC_TEARDOWN: ${{ matrix.variant == 'gc-teardown' && '1' || '' }}
+      NAPARI_DEBUG_SHIFT_WINDOWS: ${{ startsWith(matrix.variant, 'shift') && '1' || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
