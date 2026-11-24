@@ -1,13 +1,15 @@
 import functools
+import json
 import operator
 import os
 import sys
+import time
 
 import numpy as np
 import pytest
 from packaging.version import parse as parse_version
 from qtpy import QT_VERSION
-from qtpy.QtCore import QEvent, QPoint, QPointF, Qt
+from qtpy.QtCore import QEvent, QObject, QPoint, QPointF, Qt
 from qtpy.QtGui import QMouseEvent
 from qtpy.QtWidgets import QApplication
 
@@ -103,7 +105,9 @@ def test_toggle_axes_scale_bar_coordinate_grid_attr(
     reruns=2, reruns_delay=250, condition=sys.platform == 'darwin'
 )  # sometimes fails on macos CI
 @pytest.mark.qt_log_level_fail('WARNING')
-def test_toggle_fullscreen_from_normal(make_napari_viewer, qtbot):
+def test_toggle_fullscreen_from_normal(
+    make_napari_viewer, qtbot, qtlog, request
+):
     """
     Test toggle fullscreen action from normal window state.
 
@@ -114,34 +118,208 @@ def test_toggle_fullscreen_from_normal(make_napari_viewer, qtbot):
     action_id = 'napari.window.view.toggle_fullscreen'
     app = get_app_model()
     viewer = make_napari_viewer(show=True)
+    debug = _DebugFullScreen(viewer.window._qt_window, qtbot)
+    try:
+        # Check initial default state (no fullscreen)
+        assert not viewer.window._qt_window.isFullScreen()
 
-    # Check initial default state (no fullscreen)
-    assert not viewer.window._qt_window.isFullScreen()
+        # Check `View` menu can be seen in normal window state
+        check_view_menu_visibility(viewer, qtbot)
+        debug.sample('start')
 
-    # Check `View` menu can be seen in normal window state
-    check_view_menu_visibility(viewer, qtbot)
+        # Check fullscreen state change
+        mark = debug.mark()
+        app.commands.execute_command(action_id)
+        if sys.platform == 'darwin':
+            # On macOS, wait for the animation to complete
+            debug.wait(250)
+        debug.sample('after_enter')
+        if _DEBUG_FULLSCREEN == 'wait':
+            debug.wait_platform(mark, full_screen=True)
+        assert viewer.window._qt_window.isFullScreen()
+        check_windows_style(viewer)
 
-    # Check fullscreen state change
-    app.commands.execute_command(action_id)
-    if sys.platform == 'darwin':
-        # On macOS, wait for the animation to complete
-        qtbot.wait(250)
-    assert viewer.window._qt_window.isFullScreen()
-    check_windows_style(viewer)
+        # Check `View` menu can be seen in fullscreen window state
+        check_view_menu_visibility(viewer, qtbot)
 
-    # Check `View` menu can be seen in fullscreen window state
-    check_view_menu_visibility(viewer, qtbot)
+        # Check return to non fullscreen state
+        mark = debug.mark()
+        app.commands.execute_command(action_id)
+        if sys.platform == 'darwin':
+            # On macOS, wait for the animation to complete
+            debug.wait(250)
+        debug.sample('after_exit')
+        if _DEBUG_FULLSCREEN == 'wait':
+            debug.wait_platform(mark, full_screen=False)
+        assert not viewer.window._qt_window.isFullScreen()
+        check_windows_style(viewer)
 
-    # Check return to non fullscreen state
-    app.commands.execute_command(action_id)
-    if sys.platform == 'darwin':
-        # On macOS, wait for the animation to complete
-        qtbot.wait(250)
-    assert not viewer.window._qt_window.isFullScreen()
-    check_windows_style(viewer)
+        # Check `View` still menu can be seen in non fullscreen window state
+        check_view_menu_visibility(viewer, qtbot)
+        debug.sample('end')
+    finally:
+        debug.report(request, qtlog)
 
-    # Check `View` still menu can be seen in non fullscreen window state
-    check_view_menu_visibility(viewer, qtbot)
+
+# --- macOS full-screen debugging (temporary, debug branch only) ------------
+# '' only logs, 'wait' also waits for macOS to finish each transition
+_DEBUG_FULLSCREEN = os.environ.get('NAPARI_DEBUG_FULLSCREEN', '')
+_NS_WINDOW_STYLE_MASK_FULL_SCREEN = 1 << 14
+_NS_WINDOW_OCCLUSION_STATE_VISIBLE = 1 << 1
+
+
+def _debug_state_value(state) -> int:
+    return int(getattr(state, 'value', state))
+
+
+def _debug_ns_window(widget) -> dict | None:
+    """Read the full-screen state of the widget's NSWindow."""
+    if sys.platform != 'darwin':
+        return None
+    import ctypes
+
+    objc = ctypes.cdll.LoadLibrary('/usr/lib/libobjc.A.dylib')
+    objc.sel_registerName.restype = ctypes.c_void_p
+    objc.sel_registerName.argtypes = [ctypes.c_char_p]
+    address = ctypes.cast(objc.objc_msgSend, ctypes.c_void_p).value
+    vp = ctypes.c_void_p
+    send_id = ctypes.CFUNCTYPE(vp, vp, vp)(address)
+    send_ulong = ctypes.CFUNCTYPE(ctypes.c_ulong, vp, vp)(address)
+    send_bool = ctypes.CFUNCTYPE(ctypes.c_bool, vp, vp)(address)
+    send_bool_sel = ctypes.CFUNCTYPE(ctypes.c_bool, vp, vp, vp)(address)
+
+    def sel(name: str) -> int:
+        return objc.sel_registerName(name.encode())
+
+    handle = widget.windowHandle()
+    if handle is None:
+        return None
+    window = send_id(int(handle.winId()), sel('window'))
+    if not window:
+        return {'window': None}
+    style = send_ulong(window, sel('styleMask'))
+    qt_full_screen = None
+    if send_bool_sel(window, sel('respondsToSelector:'), sel('qt_fullScreen')):
+        qt_full_screen = send_bool(window, sel('qt_fullScreen'))
+    occlusion = send_ulong(window, sel('occlusionState'))
+    return {
+        'style_fs': bool(style & _NS_WINDOW_STYLE_MASK_FULL_SCREEN),
+        'qt_fs': qt_full_screen,
+        'zoomed': send_bool(window, sel('isZoomed')),
+        'visible': send_bool(window, sel('isVisible')),
+        'occl_visible': bool(occlusion & _NS_WINDOW_OCCLUSION_STATE_VISIBLE),
+    }
+
+
+class _DebugFullScreen(QObject):
+    """Record what Qt and macOS report while the window toggles full screen."""
+
+    def __init__(self, window, qtbot) -> None:
+        from qtpy.QtCore import QLoggingCategory
+
+        super().__init__()
+        self.window = window
+        self.qtbot = qtbot
+        self.t0 = time.time()
+        # [time, label, widget state, NSWindow state, frame]
+        self.samples: list = []
+        # [time, widget state, spontaneous] for each WindowStateChange
+        self.events: list = []
+        # NSWindow state changes during the waits: [time, NSWindow state]
+        self.timeline: list = []
+        # [label, seconds waited or None on timeout]
+        self.platform_waits: list = []
+        window.installEventFilter(self)
+        QLoggingCategory.setFilterRules('qt.qpa.window.debug=true')
+
+    def now(self) -> float:
+        return round(time.time() - self.t0, 3)
+
+    def eventFilter(self, obj, event) -> bool:
+        if event.type() == QEvent.Type.WindowStateChange:
+            self.events.append(
+                [
+                    self.now(),
+                    _debug_state_value(obj.windowState()),
+                    event.spontaneous(),
+                ]
+            )
+        return False
+
+    def sample(self, label: str) -> None:
+        self.samples.append(
+            [
+                self.now(),
+                label,
+                _debug_state_value(self.window.windowState()),
+                _debug_ns_window(self.window),
+                list(self.window.frameGeometry().getRect()),
+            ]
+        )
+
+    def _poll(self) -> None:
+        state = _debug_ns_window(self.window)
+        if not self.timeline or self.timeline[-1][1] != state:
+            self.timeline.append([self.now(), state])
+
+    def wait(self, ms: int) -> None:
+        """Wait like qtbot.wait, logging NSWindow state changes."""
+        end = time.time() + ms / 1000
+        self._poll()
+        while time.time() < end:
+            self.qtbot.wait(10)
+            self._poll()
+
+    def mark(self) -> int:
+        return len(self.events)
+
+    def wait_platform(
+        self, mark: int, full_screen: bool, timeout: float = 5
+    ) -> None:
+        """Wait for macOS to report the requested full-screen state."""
+        flag = _debug_state_value(Qt.WindowState.WindowFullScreen)
+        start = time.time()
+
+        def reported() -> bool:
+            return any(
+                spontaneous and bool(state & flag) == full_screen
+                for _, state, spontaneous in self.events[mark:]
+            )
+
+        while not reported() and time.time() - start < timeout:
+            self.qtbot.wait(10)
+            self._poll()
+        waited = round(time.time() - start, 3) if reported() else None
+        self.platform_waits.append(
+            ['enter' if full_screen else 'exit', waited]
+        )
+        self.sample('after_platform_' + ('enter' if full_screen else 'exit'))
+
+    def report(self, request, qtlog) -> None:
+        from qtpy.QtCore import QLoggingCategory
+
+        QLoggingCategory.setFilterRules('qt.qpa.window.debug=false')
+        self.window.removeEventFilter(self)
+        messages = [
+            [round(r.when.timestamp() - self.t0, 3), r.message[:200]]
+            for r in qtlog.records
+            if any(
+                key in r.message
+                for key in ('Applying', 'handleWindowStateChanged', 'cclusion')
+            )
+        ]
+        summary = {
+            'test': request.node.name,
+            'variant': _DEBUG_FULLSCREEN,
+            'samples': self.samples,
+            'events': self.events,
+            'timeline': self.timeline,
+            'platform_waits': self.platform_waits,
+            'qt_messages': messages,
+        }
+        capman = request.config.pluginmanager.getplugin('capturemanager')
+        with capman.global_and_fixture_disabled():
+            print('FSLOG', json.dumps(summary), flush=True)  # noqa: T201
 
 
 @skip_local_popups
