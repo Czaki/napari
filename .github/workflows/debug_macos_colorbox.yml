@@ -23,12 +23,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [macos-15, macos-15-intel]
         # the usual session up to the label color tests, with
         # test_toggle_fullscreen_from_normal logging what Qt and macOS report
         # (log), deselected (deselect), or waiting for macOS to finish each
-        # full-screen transition (wait)
-        variant: [log, deselect, wait]
+        # full-screen transition (wait); the second run repeats the arm jobs
+        # that got no runner and the wait variant with the fixed signal
+        include:
+          - {platform: macos-15, variant: log}
+          - {platform: macos-15, variant: wait}
+          - {platform: macos-15-intel, variant: wait}
     env:
       NUMPY_EXPERIMENTAL_ARRAY_FUNCTION: 1
       PYVISTA_OFF_SCREEN: True

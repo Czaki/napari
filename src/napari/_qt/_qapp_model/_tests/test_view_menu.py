@@ -10,7 +10,7 @@ import pytest
 from packaging.version import parse as parse_version
 from qtpy import QT_VERSION
 from qtpy.QtCore import QEvent, QObject, QPoint, QPointF, Qt
-from qtpy.QtGui import QMouseEvent
+from qtpy.QtGui import QMouseEvent, QWindow
 from qtpy.QtWidgets import QApplication
 
 from napari._app_model import get_app_model
@@ -223,13 +223,17 @@ class _DebugFullScreen(QObject):
         self.t0 = time.time()
         # [time, label, widget state, NSWindow state, frame]
         self.samples: list = []
-        # [time, widget state, spontaneous] for each WindowStateChange
+        # [time, 'widget' or 'window', state, spontaneous] for each
+        # WindowStateChange; macOS reports a finished transition to the
+        # QWindow, which forwards it to the widget only if its state changed
         self.events: list = []
         # NSWindow state changes during the waits: [time, NSWindow state]
         self.timeline: list = []
         # [label, seconds waited or None on timeout]
         self.platform_waits: list = []
+        self.handle = window.windowHandle()
         window.installEventFilter(self)
+        self.handle.installEventFilter(self)
         QLoggingCategory.setFilterRules('qt.qpa.window.debug=true')
 
     def now(self) -> float:
@@ -237,10 +241,13 @@ class _DebugFullScreen(QObject):
 
     def eventFilter(self, obj, event) -> bool:
         if event.type() == QEvent.Type.WindowStateChange:
+            is_window = isinstance(obj, QWindow)
+            state = obj.windowStates() if is_window else obj.windowState()
             self.events.append(
                 [
                     self.now(),
-                    _debug_state_value(obj.windowState()),
+                    'window' if is_window else 'widget',
+                    _debug_state_value(state),
                     event.spontaneous(),
                 ]
             )
@@ -282,8 +289,10 @@ class _DebugFullScreen(QObject):
 
         def reported() -> bool:
             return any(
-                spontaneous and bool(state & flag) == full_screen
-                for _, state, spontaneous in self.events[mark:]
+                target == 'window'
+                and spontaneous
+                and bool(state & flag) == full_screen
+                for _, target, state, spontaneous in self.events[mark:]
             )
 
         while not reported() and time.time() - start < timeout:
@@ -300,6 +309,7 @@ class _DebugFullScreen(QObject):
 
         QLoggingCategory.setFilterRules('qt.qpa.window.debug=false')
         self.window.removeEventFilter(self)
+        self.handle.removeEventFilter(self)
         messages = [
             [round(r.when.timestamp() - self.t0, 3), r.message[:200]]
             for r in qtlog.records
